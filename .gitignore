@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# PyTorch and model files
+*.pt
+*.pth
+checkpoints/
+logs/
+runs/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment files
+.env
+.venv/
+venv/
+env/
+
+# VSCode / PyCharm settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TorchRL
+.cache/
+.replay_buffer/
+
+# Temporary files
+*.log
+*.tmp
+*.bak
+*.swp

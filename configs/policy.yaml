@@ -1,0 +1,7 @@
+policy:
+  min_scale: 0.1
+  depth: 4
+  num_cells: 128
+  activation: tanh
+  share_params: false
+  centralised: false

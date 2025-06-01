@@ -1,0 +1,12 @@
+train:
+  total_frames: 1200          # total frames for training
+  frames_per_batch: 300        # frames collected per batch
+  num_epochs: 10                # optimization steps per batch
+  minibatch_size: 50            # minibatch size for optimizer
+  max_grad_norm: 1.0            # max gradient clipping norm
+  lr: 3.0e-3                    # learning rate
+  lr_step_size: 20              # leaning rate step size for scheduler
+  lr_gamma: 0.5                 # gamma value for scheduler
+  log_interval: 1               # how often to print logs (in batches)
+  metrics_save_path: "training_metrics.json"  # where to save metrics
+  eval_episodes: 100      # number of evaluation episodes

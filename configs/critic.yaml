@@ -1,0 +1,6 @@
+critic:
+  depth: 4
+  num_cells: 128
+  activation: tanh
+  share_params: false
+  centralised: false

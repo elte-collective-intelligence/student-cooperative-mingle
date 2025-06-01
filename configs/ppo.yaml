@@ -1,0 +1,5 @@
+ppo:
+  clip_epsilon: 0.1
+  gamma: 0.95
+  lambda: 0.95
+  entropy_eps: 1.0e-3

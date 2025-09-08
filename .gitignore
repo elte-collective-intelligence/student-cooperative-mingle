@@ -1,43 +1,57 @@
-# Byte-compiled / optimized / DLL files
+# Python bytecode files
 __pycache__/
 *.py[cod]
-*.so
 
-# Distribution / packaging
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Nox-related files
+.nox/
+
+# Pytest cache
+.cache/
+
+# Mypy cache
+.mypy_cache/
+
+# IDE/editor config files
+.idea/
+.vscode/
+
+# OS-specific files (macOS)
+.DS_Store
+
+# OS-specific files (Windows)
+Thumbs.db
+*.bak
+*.swp
+
+# Egg info and distribution files
+*.egg-info/
+*.dist-info/
 build/
 dist/
-*.egg-info/
 
-# PyTorch and model files
-*.pt
-*.pth
-checkpoints/
-logs/
-runs/
+# Log files
+*.log
+
+# Coverage reports
+*.coverage
+.coverage.*
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Environment files
-.env
-.venv/
-venv/
-env/
+# pytest results
+*.xml
 
-# VSCode / PyCharm settings
-.vscode/
-.idea/
+# pycache
+__pycache__/
+*.py[cod]
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# TorchRL
-.cache/
-.replay_buffer/
-
-# Temporary files
-*.log
-*.tmp
-*.bak
-*.swp
+# logs/outputs
+logs/
+outputs/
+wandb/

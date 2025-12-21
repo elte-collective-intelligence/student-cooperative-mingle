@@ -20,7 +20,7 @@ def select_reward_modules():
     thresholds = {"spinning": [], "claiming": []}
 
     for phase in selected.keys():
-        print(f"\n➡️  Selecting reward modules for phase: {phase.upper()}\n")
+        print(f"\nSelecting reward modules for phase: {phase.upper()}\n")
 
         available_keys = list(available_modules.keys())
 
@@ -40,7 +40,7 @@ def select_reward_modules():
             choice = input("\nSelect a module index (or 'done'): ").strip()
 
             if choice.lower() == "done":
-                print(f"\n✅ Finished selection for phase: {phase.upper()}\n")
+                print(f"\nFinished selection for phase: {phase.upper()}\n")
                 break
 
             try:
@@ -54,10 +54,10 @@ def select_reward_modules():
 
                 threshold = float(input(f"Enter mean reward threshold to activate next_module: ").strip())
                 thresholds[phase].append(threshold)
-                print(f"\n➕ Added {name} | mean_reward for next module > {threshold:.4f}\n")
+                print(f"\nAdded {name} | mean_reward for next module > {threshold:.4f}\n")
 
             except (ValueError, IndexError):
-                print("\n❌ Invalid input. Please try again.\n")
+                print("\nInvalid input. Please try again.\n")
 
     return selected, thresholds
 
@@ -80,7 +80,7 @@ class RewardManager:
             if reward_mean > threshold:
                 self.current_idx += 1
                 self.reward_modules[self.current_idx].active = True
-                print(f"🆕 Activated new reward: {type(self.reward_modules[self.current_idx]).__name__} "
+                print(f"Activated new reward: {type(self.reward_modules[self.current_idx]).__name__} "
                       f"for phase: {self.phase} (mean_reward={reward_mean:.4f} > {threshold:.4f})")
 
     def __call__(self, env):

@@ -1,0 +1,14 @@
+# Discrete communication (leader-follower protocol)
+name: discrete
+enabled: true
+type: discrete
+obs_dim_addition: 4
+
+# Leader-follower settings
+n_leaders: 3  # n_agents / 2
+vocab_size: 2  # "follow_me" (0), "full" (1)
+
+# Message meanings
+messages:
+  follow_me: 0
+  full: 1

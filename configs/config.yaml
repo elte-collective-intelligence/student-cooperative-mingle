@@ -1,15 +1,18 @@
 # Main Hydra configuration file
-# Usage: python train.py algorithm=ppo fairness=none env.n_agents=6
+# Usage: python train_hydra.py algorithm=ppo fairness=none env.n_agents=6
+# Sweep: python train_hydra.py --multirun algorithm=ppo,ippo,mappo
 
 defaults:
   - env: default
   - algorithm: ppo
+  - communication: none
   - fairness: none
+  - curriculum: none
   - train: default
   - _self_
 
 # Experiment name (auto-generated if not set)
-experiment_name: ${algorithm.name}_${fairness.mode}_${env.n_agents}agents
+experiment_name: ${algorithm.name}_comm-${communication.name}_fair-${fairness.mode}_${env.n_agents}agents
 
 # Random seed
 seed: 42
@@ -19,3 +22,11 @@ device: auto  # auto, cpu, or cuda
 
 # Output directory (Hydra will create this)
 output_dir: ${hydra:runtime.output_dir}
+
+# Hydra configuration
+hydra:
+  run:
+    dir: outputs/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: outputs/sweeps/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

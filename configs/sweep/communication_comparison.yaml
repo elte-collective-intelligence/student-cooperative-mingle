@@ -1,0 +1,13 @@
+# Sweep config for communication comparison
+# Run with: python train_hydra.py --multirun +sweep=communication_comparison
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      communication: none,discrete,continuous
+
+defaults:
+  - override /algorithm: ppo
+  - override /fairness: none
+  - override /curriculum: none

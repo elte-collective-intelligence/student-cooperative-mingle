@@ -1,0 +1,5 @@
+# No communication baseline
+name: none
+enabled: false
+type: none
+obs_dim_addition: 0

@@ -1,0 +1,18 @@
+# Progressive curriculum learning (3 stages)
+name: progressive
+enabled: true
+
+# Stage definitions
+stages:
+  - name: easy
+    frames: 100000
+    room_capacity: 3
+    overfill_penalty: 2.0
+  - name: medium
+    frames: 100000
+    room_capacity: 2
+    overfill_penalty: 5.0
+  - name: hard
+    frames: 100000
+    room_capacity: 2
+    overfill_penalty: 8.0

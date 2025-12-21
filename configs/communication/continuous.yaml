@@ -1,0 +1,9 @@
+# Continuous communication (learned embeddings)
+name: continuous
+enabled: true
+type: continuous
+obs_dim_addition: 8
+
+# Embedding settings
+comm_dim: 8  # Dimension of learned embedding
+aggregation: mean  # How to aggregate messages from other agents

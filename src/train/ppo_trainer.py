@@ -27,13 +27,13 @@ def train(
     use_character_animation=True,
     **kwargs
 ):
-    print("🚀 Starting PPO Training...")
+    print("Starting PPO Training...")
 
     logs = {
         "loss": [],
         "lr": [],
         "frames": [],
-        "eval_reward": []   # ⭐ NEW: reward curve storage
+        "eval_reward": []
     }
 
     collected_frames = 0
@@ -104,7 +104,7 @@ def train(
                     device=device,
                 )
             except Exception as e:
-                print(f"⚠️ GIF generation failed: {e}")
+                print(f"GIF generation failed: {e}")
 
         # -------------------------------------------
         # 4. LOGGING
@@ -113,7 +113,7 @@ def train(
             print(f"[PPO] Frames: {collected_frames} | Loss: {loss.item():.4f}")
 
         # -------------------------------------------
-        # 5. EVALUATION (★ NEW: capture reward)
+        # 5. EVALUATION
         # -------------------------------------------
         try:
             eval_result = evaluate(
@@ -124,7 +124,7 @@ def train(
                 max_steps=env.max_steps,
             )
 
-            # ⭐ NEW: store evaluation reward for plotting
+            # Store evaluation reward
             if isinstance(eval_result, dict) and "mean_reward" in eval_result:
                 logs["eval_reward"].append(
                     float(eval_result["mean_reward"])
@@ -137,7 +137,7 @@ def train(
                     logs["eval_reward"].append(None)
 
         except Exception as e:
-            print(f"⚠️ Evaluation failed: {e}")
+            print(f"Evaluation failed: {e}")
             logs["eval_reward"].append(None)
 
     pbar.close()

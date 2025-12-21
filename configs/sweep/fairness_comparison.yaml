@@ -1,0 +1,13 @@
+# Sweep config for fairness comparison
+# Run with: python train_hydra.py --multirun +sweep=fairness_comparison
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      fairness: none,gini,participation
+
+defaults:
+  - override /algorithm: ppo
+  - override /communication: none
+  - override /curriculum: none

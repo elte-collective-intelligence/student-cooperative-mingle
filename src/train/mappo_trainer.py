@@ -7,11 +7,8 @@ from collections import deque
 import numpy as np
 
 
-# ============================================================
-#   MAPPO Actor network (improved)
-# ============================================================
-
 class MAPPOActor(nn.Module):
+    """MAPPO actor network with layer normalization."""
     def __init__(self, obs_dim, action_dim, hidden_size=256):
         super().__init__()
         # Deeper network with layer normalization for stability
@@ -37,11 +34,8 @@ class MAPPOActor(nn.Module):
         return mean, std
 
 
-# ============================================================
-#   Centralized critic (improved with attention-like mechanism)
-# ============================================================
-
 class CentralValueNetwork(nn.Module):
+    """Centralized value network for CTDE paradigm."""
     def __init__(self, obs_dim, n_agents, hidden_size=256):
         super().__init__()
         input_dim = obs_dim * n_agents
@@ -65,10 +59,6 @@ class CentralValueNetwork(nn.Module):
         flat = obs_all_agents.reshape(batch, n * d)
         return self.net(flat)
 
-
-# ============================================================
-#   Trajectory Buffer for proper batch collection
-# ============================================================
 
 class TrajectoryBuffer:
     """Buffer for collecting trajectories before updates."""
@@ -112,17 +102,8 @@ class TrajectoryBuffer:
         return obs, actions, rewards, dones, log_probs, values
 
 
-# ============================================================
-#   MAPPO Trainer (FIXED: proper batch updates)
-# ============================================================
-
 class MAPPOTrainer:
-    """
-    Multi-Agent PPO with Centralized Training, Decentralized Execution (CTDE).
-
-    FIXED: Now collects trajectories in batches before updating, instead of
-    per-timestep updates which have extremely high variance.
-    """
+    """Multi-Agent PPO with Centralized Training, Decentralized Execution (CTDE)."""
 
     def __init__(self, env, device="cpu", config=None):
         self.env = env
@@ -298,12 +279,7 @@ class MAPPOTrainer:
         return total_loss_epoch / max(num_updates, 1)
 
     def train_mappo(self, total_frames, log_interval=100):
-        """
-        Main training loop with proper batch collection.
-
-        FIXED: Collects full trajectories before updating, instead of
-        per-timestep updates.
-        """
+        """Main training loop with batch collection."""
         td = self.env.reset()
         obs = td["observation"].detach().clone()
 
@@ -405,10 +381,6 @@ class MAPPOTrainer:
         return logs
 
 
-# ============================================================
-#   Used by pipeline.py
-# ============================================================
-
 def train(
     collector=None,
     loss_module=None,
@@ -436,7 +408,7 @@ def train(
     try:
         logs = trainer.train_mappo(total_frames=total_frames)
     except Exception as e:
-        print(f"❌ Training error: {e}")
+        print(f"Training error: {e}")
         import traceback
         traceback.print_exc()
         logs = {"episode_rewards": [], "error": str(e)}
@@ -446,8 +418,8 @@ def train(
         import json
         with open(metrics_save_path, "w") as f:
             json.dump(logs, f)
-        print(f"✅ Metrics saved to {metrics_save_path}")
+        print(f"Metrics saved to {metrics_save_path}")
     except Exception as e:
-        print(f"⚠️ Failed to save MAPPO metrics: {e}")
+        print(f"Failed to save MAPPO metrics: {e}")
 
     return logs

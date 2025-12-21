@@ -1,0 +1,14 @@
+# Sweep config for algorithm comparison
+# Run with: python train_hydra.py --multirun +sweep=algorithm_comparison
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      algorithm: ppo,ippo,mappo
+
+defaults:
+  - override /algorithm: ppo
+  - override /communication: none
+  - override /fairness: none
+  - override /curriculum: none

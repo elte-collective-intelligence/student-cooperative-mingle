@@ -1,0 +1,28 @@
+# Sweep config for full stack experiment
+# Run with: python train_hydra.py --multirun +sweep=full_stack
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      # Test full stack vs baseline
+      +experiment: baseline,full_stack
+
+# Experiment presets
+experiment:
+  baseline:
+    algorithm: ppo
+    communication: none
+    fairness: none
+    curriculum: none
+  full_stack:
+    algorithm: mappo
+    communication: discrete
+    fairness: gini
+    curriculum: progressive
+
+defaults:
+  - override /algorithm: mappo
+  - override /communication: discrete
+  - override /fairness: gini
+  - override /curriculum: progressive

@@ -1,0 +1,6 @@
+# No curriculum learning (fixed difficulty)
+name: none
+enabled: false
+
+# Fixed settings throughout training
+stages: []

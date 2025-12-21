@@ -1,0 +1,16 @@
+# Sweep config for hyperparameter search
+# Run with: python train_hydra.py --multirun +sweep=hyperparameter_search
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      train.lr: 1e-4,3e-4,1e-3
+      algorithm.entropy_coef: 0.01,0.05,0.1
+      algorithm.clip_epsilon: 0.1,0.2,0.3
+
+defaults:
+  - override /algorithm: ppo
+  - override /communication: none
+  - override /fairness: none
+  - override /curriculum: none

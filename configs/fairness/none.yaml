@@ -1,0 +1,4 @@
+# No fairness - baseline
+mode: none
+alpha: 0.0
+enabled: false

@@ -1,5 +1,9 @@
 ppo:
-  clip_epsilon: 0.1
-  gamma: 0.95
-  lambda: 0.95
-  entropy_eps: 1.0e-3
+  clip_epsilon: 0.2       # Standard clipping
+  gamma: 0.99             # Discount factor
+  lambda: 0.95            # GAE lambda
+  entropy_eps: 0.01       # FIXED: Reduced from 0.1 (was causing too much exploration)
+  critic_coeff: 1.0       # FIXED: Increased from 0.5 (stronger value function learning)
+  # PPO-specific improvements
+  target_kl: 0.02         # KL divergence target for early stopping
+  value_clip: 0.2         # Value function clipping (matches policy clip)

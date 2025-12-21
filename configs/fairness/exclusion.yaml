@@ -1,0 +1,5 @@
+# Exclusion fairness - penalize systematic exclusion
+mode: exclusion_counts
+alpha: 0.5
+enabled: true
+exclusion_threshold: -0.1

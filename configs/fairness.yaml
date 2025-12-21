@@ -1,0 +1,5 @@
+fairness:
+  mode: "exclusion_counts"       # "none" | "gini" | "participation_variance" | "exclusion_counts"
+  alpha: 0.7                     # 0-1: how strong the redistribution
+  participation_threshold: 0.0   # reward > threshold -> participation
+  exclusion_threshold: -0.1      # reward < threshold -> exclusion

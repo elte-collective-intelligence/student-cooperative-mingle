@@ -1,0 +1,17 @@
+{
+  "PPO": {
+    "final_reward": 1270.0089271247386,
+    "max_reward": 5047.801328659058,
+    "total_episodes": 49
+  },
+  "IPPO": {
+    "final_reward": 683.7896472930909,
+    "max_reward": 4135.17144036293,
+    "total_episodes": 49
+  },
+  "MAPPO": {
+    "final_reward": 1496.481774663925,
+    "max_reward": 5049.7348074913025,
+    "total_episodes": 49
+  }
+}

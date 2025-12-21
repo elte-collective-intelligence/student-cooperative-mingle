@@ -13,17 +13,21 @@ from src.envs.modules.metric_module import (
     CollisionRateMetric, RoomOccupancyRateMetric, CenterPresenceMetric,
     AverageStepDistanceMetric, IdleAgentRateMetric, RoomSwitchesMetric,
     PhaseTimeMetric, AgentDensityMetric,
-    MaxDistanceFromCenterMetric, MinAgentDistanceMetric, AverageRoomDistanceMetric, AgentMovementVarianceMetric
+    MaxDistanceFromCenterMetric, MinAgentDistanceMetric, AverageRoomDistanceMetric, AgentMovementVarianceMetric,
+    EpisodeSuccessMetric, GiniFairnessMetric, ClaimingPhaseEfficiencyMetric,
+    # Communication and fairness metrics
+    MessageUsageMetric, CommunicationEffectivenessMetric, ParticipationFairnessMetric
 )
 
 def evaluate(policy_module, env, device, num_episodes=10, max_steps=300, out_dir=None):
-    print(f"\n🚀 Running evaluation...\n")
+    print(f"\n[EVAL] Running evaluation...\n")
 
     policy_module.eval()
     policy_module.to(device)
     env.to(device)
 
     metric_modules = [
+        # Core environment metrics
         CollisionRateMetric(), RoomOccupancyRateMetric(), CenterPresenceMetric(),
         AverageStepDistanceMetric(), IdleAgentRateMetric(), RoomSwitchesMetric(),
         PhaseTimeMetric(), AgentDensityMetric(),
@@ -31,6 +35,14 @@ def evaluate(policy_module, env, device, num_episodes=10, max_steps=300, out_dir
         MinAgentDistanceMetric(),
         AverageRoomDistanceMetric(),
         AgentMovementVarianceMetric(),
+        # Success and fairness metrics (Task 2)
+        EpisodeSuccessMetric(),
+        GiniFairnessMetric(),
+        ClaimingPhaseEfficiencyMetric(),
+        ParticipationFairnessMetric(),
+        # Communication metrics (Task 1 & 4)
+        MessageUsageMetric(),
+        CommunicationEffectivenessMetric(),
     ]
 
     metrics_over_episodes = defaultdict(list)
@@ -57,7 +69,7 @@ def evaluate(policy_module, env, device, num_episodes=10, max_steps=300, out_dir
         for k, v in episode_results.items():
             metrics_over_episodes[k].append(v)
 
-        print(f"🎯 Episode {episode + 1}/{num_episodes} results:")
+        print(f"[EPISODE] {episode + 1}/{num_episodes} results:")
         for k, v in episode_results.items():
             print(f"    {k}: {v:.3f}")
         print()
@@ -71,7 +83,7 @@ def evaluate(policy_module, env, device, num_episodes=10, max_steps=300, out_dir
     # Save metrics to JSON
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
         json.dump(metrics_over_episodes, f, indent=2)
-    print(f"📁 Metrics saved to {out_dir}/metrics.json\n")
+    print(f"[SAVE] Metrics saved to {out_dir}/metrics.json\n")
 
     # Plot metrics
     for metric, values in metrics_over_episodes.items():
@@ -84,15 +96,15 @@ def evaluate(policy_module, env, device, num_episodes=10, max_steps=300, out_dir
         plt.tight_layout()
         plt.savefig(os.path.join(out_dir, f"{metric}.png"))
         plt.close()
-    print(f"📊 Plots saved to: {out_dir}\n")
+    print(f"[PLOT] Plots saved to: {out_dir}\n")
 
     # Print summary
-    print("📈 Evaluation Summary:")
+    print("[SUMMARY] Evaluation Summary:")
     for k, v in metrics_over_episodes.items():
         mean_val = sum(v) / len(v)
         std_val = (sum((x - mean_val) ** 2 for x in v) / len(v)) ** 0.5
         print(f"""
-🔹 {k}:
+[METRIC] {k}:
     Mean = {mean_val:.4f}
     Std  = {std_val:.4f}
 """)

@@ -1,0 +1,14 @@
+# MAPPO (Multi-Agent PPO) Algorithm configuration
+name: mappo
+type: mappo
+clip_epsilon: 0.2
+gamma: 0.99
+lmbda: 0.95
+entropy_coef: 0.01
+value_coef: 0.5
+target_kl: 0.02
+shared_params: true
+centralized_critic: true
+hidden_dim: 128
+num_layers: 2
+critic_hidden_dim: 256

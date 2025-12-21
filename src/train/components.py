@@ -12,22 +12,40 @@ from src.models.critic_factory import build_critic
 from src.envs.env_factory import make_env
 from src.envs.modules.reward_module import RewardModule
 from src.train.modules.gae import StableGAE
+from src.envs.transforms.fairness_reward_transform import make_fairness_reward_transform
 
 from torchrl.objectives import ClipPPOLoss
 
-def build_train_components(config: dict, device: torch.device = torch.device("cpu"), 
+
+def build_train_components(config: dict, device: torch.device = torch.device("cpu"),
                            reward_modules: Optional[List[RewardModule]] = None, reward_managers: Optional[dict] = None):
-    # Instantiate environment
-    env = TransformedEnv(
-        make_env(env_config=config["env"], device=device, reward_modules=reward_modules, reward_managers=reward_managers),
-        Compose(
-            ObservationNorm(in_keys=["observation"]),
-        ),
+    """Build all training components for Cooperative Mingle."""
+
+    # Fairness config
+    fairness_cfg = config.get("fairness", {"mode": "none"})
+    fairness_mode = fairness_cfg.get("mode", "none")
+
+    if fairness_mode != "none":
+        print(f"[FAIRNESS] Enabling fairness transform with mode: {fairness_mode}")
+        fairness_transform = make_fairness_reward_transform(fairness_cfg)
+    else:
+        fairness_transform = None
+
+    # Create base environment
+    base_env = make_env(
+        env_config=config["env"],
+        device=device,
+        reward_modules=reward_modules,
+        reward_managers=reward_managers
     )
 
+    # Create transformed environment (without ObservationNorm to avoid size issues)
+    env = TransformedEnv(base_env)
     env.reward_managers = reward_managers
 
-    env.transform[0].init_stats(num_iter=1000, reduce_dim=0, cat_dim=0)
+    # Store fairness transform for use in training loop
+    env.fairness_transform = fairness_transform
+
     env.to(device)
 
     # Build policy & critic
@@ -58,7 +76,7 @@ def build_train_components(config: dict, device: torch.device = torch.device("cp
         value_network=critic,
         average_gae=True,
     )
-    
+
     # PPO loss
     loss_module = ClipPPOLoss(
         actor_network=policy,

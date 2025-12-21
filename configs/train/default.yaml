@@ -1,0 +1,14 @@
+# Training configuration
+total_frames: 100000
+frames_per_batch: 2000
+num_epochs: 10
+minibatch_size: 256
+max_grad_norm: 0.5
+lr: 3.0e-4
+lr_scheduler: step
+lr_step_size: 50
+lr_gamma: 0.9
+log_interval: 10
+eval_episodes: 5
+save_model: true
+save_interval: 10000

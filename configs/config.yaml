@@ -1,0 +1,21 @@
+# Main Hydra configuration file
+# Usage: python train.py algorithm=ppo fairness=none env.n_agents=6
+
+defaults:
+  - env: default
+  - algorithm: ppo
+  - fairness: none
+  - train: default
+  - _self_
+
+# Experiment name (auto-generated if not set)
+experiment_name: ${algorithm.name}_${fairness.mode}_${env.n_agents}agents
+
+# Random seed
+seed: 42
+
+# Device
+device: auto  # auto, cpu, or cuda
+
+# Output directory (Hydra will create this)
+output_dir: ${hydra:runtime.output_dir}

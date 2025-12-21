@@ -1,0 +1,4 @@
+# Gini fairness - redistribute rewards based on Gini coefficient
+mode: gini
+alpha: 0.5
+enabled: true

@@ -1,0 +1,13 @@
+# IPPO (Independent PPO) Algorithm configuration
+name: ippo
+type: ippo
+clip_epsilon: 0.2
+gamma: 0.99
+lmbda: 0.95
+entropy_coef: 0.01
+value_coef: 0.5
+target_kl: 0.02
+shared_params: false
+centralized_critic: false
+hidden_dim: 128
+num_layers: 2

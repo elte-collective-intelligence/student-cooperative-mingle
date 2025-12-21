@@ -1,0 +1,5 @@
+# Participation fairness - penalize agents that don't participate
+mode: participation_variance
+alpha: 0.5
+enabled: true
+participation_threshold: 0.0

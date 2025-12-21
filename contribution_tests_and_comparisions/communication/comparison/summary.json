@@ -1,0 +1,17 @@
+{
+  "Baseline": {
+    "final_reward": 1235.49911339283,
+    "max_reward": 3432.107887506485,
+    "total_episodes": 49
+  },
+  "Discrete": {
+    "final_reward": -56.4174384534359,
+    "max_reward": 2864.480319738388,
+    "total_episodes": 56
+  },
+  "Continuous": {
+    "final_reward": 633.6857495009899,
+    "max_reward": 3323.0813386440277,
+    "total_episodes": 56
+  }
+}

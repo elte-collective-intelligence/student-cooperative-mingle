@@ -40,6 +40,11 @@ from src.envs.mingle_env import MingleEnv
 from src.envs.transforms.fairness_reward_transform import make_fairness_reward_transform
 from src.models.policy_factory import build_policy
 from src.models.critic_factory import build_critic
+from src.envs.modules.reward_module import (
+    CollisionAvoidanceReward,
+    StayInRoomReward,
+    GetToRoomReward,
+)
 
 
 # ============================================================
@@ -47,32 +52,134 @@ from src.models.critic_factory import build_critic
 # ============================================================
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-RESULTS_DIR = Path("experiments")
-PLOTS_DIR = Path("plots")
+BASE_DIR = Path("contribution_tests_and_comparisions")
 
 DEFAULT_CONFIG = {
-    "n_agents": 4,
-    "n_rooms": 2,
+    "n_agents": 6,
+    "n_rooms": 3,
     "room_capacity": 2,
     "total_frames": 300000,  # 300k frames for proper training
-    "frames_per_batch": 1000,
+    "frames_per_batch": 2048,
     "num_epochs": 4,
-    "minibatch_size": 128,
+    "minibatch_size": 256,
     "lr": 3e-4,
     "gamma": 0.99,
     "lmbda": 0.95,
     "clip_epsilon": 0.2,
-    "entropy_coef": 0.01,
-    "seeds": [0, 1, 2],
+    "entropy_coef": 0.1,  # Higher for exploration
+    "seeds": [0],  # Single seed for faster comparison
 }
 
 
 def ensure_dirs():
     """Create output directories."""
-    RESULTS_DIR.mkdir(exist_ok=True)
-    PLOTS_DIR.mkdir(exist_ok=True)
-    (RESULTS_DIR / "communication").mkdir(exist_ok=True)
-    (RESULTS_DIR / "fairness").mkdir(exist_ok=True)
+    BASE_DIR.mkdir(exist_ok=True)
+    (BASE_DIR / "communication").mkdir(exist_ok=True)
+    (BASE_DIR / "communication" / "baseline").mkdir(exist_ok=True)
+    (BASE_DIR / "communication" / "discrete_comm").mkdir(exist_ok=True)
+    (BASE_DIR / "communication" / "comparison").mkdir(exist_ok=True)
+    (BASE_DIR / "fairness").mkdir(exist_ok=True)
+    (BASE_DIR / "fairness" / "baseline").mkdir(exist_ok=True)
+    (BASE_DIR / "fairness" / "gini").mkdir(exist_ok=True)
+    (BASE_DIR / "fairness" / "participation").mkdir(exist_ok=True)
+    (BASE_DIR / "fairness" / "comparison").mkdir(exist_ok=True)
+
+
+def generate_gif(env, policy, output_path, title="Trained Policy", n_agents=6):
+    """Generate GIF showing trained policy behavior."""
+    try:
+        import imageio
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        gif_frames = []
+        td = env.reset()
+        obs = td["observation"].to(DEVICE)
+
+        for step in range(300):
+            with torch.no_grad():
+                loc, scale = policy(obs.unsqueeze(0))
+                loc = loc.squeeze(0)
+                actions = loc.clamp(-0.3, 0.3)
+
+            step_td = TensorDict({"action": actions.cpu()}, batch_size=[])
+            next_td = env._step(step_td)
+
+            # Render frame
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.set_xlim(-12, 12)
+            ax.set_ylim(-12, 12)
+            ax.set_aspect('equal')
+            ax.set_title(f"{title} | Step {step}", fontsize=14)
+
+            # Arena
+            ax.add_artist(plt.Circle((0, 0), env.arena_radius, fill=False, color="gray", linestyle="--"))
+            ax.add_artist(plt.Circle((0, 0), env.center_radius, fill=True, color="lightsalmon", alpha=0.3))
+
+            # Rooms
+            if hasattr(env, "room_positions") and env.room_positions is not None:
+                room_positions = env.room_positions.cpu().numpy()
+                room_occupancies = env.room_occupancy.cpu().numpy() if hasattr(env, 'room_occupancy') else [0] * len(room_positions)
+                for i, (room_pos, occ) in enumerate(zip(room_positions, room_occupancies)):
+                    color = "green" if occ >= env.room_capacity else "yellow" if occ > 0 else "lightgreen"
+                    ax.add_artist(plt.Circle(room_pos, env.room_radius, fill=True, color=color, alpha=0.3))
+                    ax.add_artist(plt.Circle(room_pos, env.room_radius, fill=False, color="green"))
+                    ax.text(room_pos[0], room_pos[1], f"R{i}: {int(occ)}/{env.room_capacity}",
+                            ha='center', va='center', fontsize=10, fontweight='bold')
+
+            # Agents
+            positions = env.agent_positions.cpu().numpy()
+            colors_list = plt.cm.tab10(np.linspace(0, 1, n_agents))
+            for i, pos in enumerate(positions):
+                ax.scatter(pos[0], pos[1], c=[colors_list[i]], s=150, edgecolors='black', linewidths=2, zorder=5)
+                ax.annotate(f"A{i}", (pos[0], pos[1] + 0.7), ha='center', fontsize=9,
+                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+
+            fig.canvas.draw()
+            frame = np.frombuffer(fig.canvas.buffer_rgba(), dtype='uint8')
+            frame = frame.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+            gif_frames.append(frame[..., :3])
+            plt.close(fig)
+
+            if next_td["done"].any() or next_td["terminated"].any():
+                break
+            obs = next_td["observation"].to(DEVICE)
+
+        imageio.mimsave(output_path, gif_frames, fps=10, loop=0)
+        print(f"GIF saved: {output_path}")
+    except Exception as e:
+        print(f"GIF generation failed: {e}")
+
+
+def save_metrics(metrics, path):
+    """Save training metrics to JSON."""
+    def convert(obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.floating, np.integer)):
+            return float(obj)
+        if isinstance(obj, dict):
+            return {k: convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [convert(v) for v in obj]
+        return obj
+
+    with open(path, "w") as f:
+        json.dump(convert(metrics), f, indent=2)
+    print(f"Metrics saved: {path}")
+
+
+def get_reward_modules():
+    """Create strong reward modules for clear learning signal."""
+    modules = [
+        CollisionAvoidanceReward(min_distance=0.5, penalty=1.0, phase_mode="claiming"),
+        GetToRoomReward(max_reward=15.0, phase_mode="claiming"),
+        StayInRoomReward(max_reward=20.0, outside_penalty=3.0, overfill_penalty=3.0, phase_mode="claiming"),
+    ]
+    for m in modules:
+        m._activate()
+    return modules
 
 
 def set_seed(seed):
@@ -122,22 +229,87 @@ class SimpleMLP(nn.Module):
 
 
 class PolicyNetwork(nn.Module):
-    """Policy network outputting mean and std for continuous actions."""
+    """Goal-conditioned policy network - moves toward rooms by default."""
     def __init__(self, obs_dim, action_dim, n_agents, hidden_dim=128):
         super().__init__()
         self.n_agents = n_agents
-        self.net = SimpleMLP(obs_dim, action_dim * 2, hidden_dim)
+        self.action_dim = action_dim
+        self.obs_dim = obs_dim
+
+        # Agent embeddings for diverse behavior
+        self.agent_embed_dim = 8
+        self.agent_embedding = nn.Embedding(n_agents, self.agent_embed_dim)
+
+        # Network outputs adjustment to room direction
+        self.net = SimpleMLP(obs_dim + self.agent_embed_dim, action_dim * 2, hidden_dim)
         self.min_std = 0.1
 
+        # Initialize agent embeddings
+        nn.init.normal_(self.agent_embedding.weight, mean=0, std=0.5)
+
     def forward(self, obs):
-        out = self.net(obs)
-        # Split into loc and scale
-        if out.dim() == 3:
-            loc = out[..., :out.shape[-1]//2]
-            scale = torch.nn.functional.softplus(out[..., out.shape[-1]//2:]) + self.min_std
-        else:
-            loc = out[..., :out.shape[-1]//2]
-            scale = torch.nn.functional.softplus(out[..., out.shape[-1]//2:]) + self.min_std
+        # obs shape: (batch, n_agents, obs_dim) or (n_agents, obs_dim) or (batch*n_agents, obs_dim)
+        original_shape = obs.shape
+        was_flat = False
+
+        # Handle flat input by reshaping to 3D
+        if obs.dim() == 2:
+            if obs.shape[0] == self.n_agents:
+                # (n_agents, obs_dim) -> (1, n_agents, obs_dim)
+                obs = obs.unsqueeze(0)
+            elif obs.shape[0] % self.n_agents == 0:
+                # (batch*n_agents, obs_dim) -> (batch, n_agents, obs_dim)
+                batch_size = obs.shape[0] // self.n_agents
+                obs = obs.view(batch_size, self.n_agents, -1)
+                was_flat = True
+            else:
+                # Unknown shape - use simple output
+                # Create dummy agent IDs cycling through agents
+                n_samples = obs.shape[0]
+                agent_ids = torch.arange(n_samples, device=obs.device) % self.n_agents
+                agent_embeds = self.agent_embedding(agent_ids)
+                obs_with_id = torch.cat([obs, agent_embeds], dim=-1)
+                out = self.net(obs_with_id)
+                room_dir = obs[:, 5:7]
+                adjustment = torch.tanh(out[..., :self.action_dim])
+                loc = room_dir * 0.25 + adjustment * 0.05
+                scale = torch.nn.functional.softplus(out[..., self.action_dim:]) + self.min_std
+                return loc, scale
+
+        batch_size, n_agents, obs_dim = obs.shape
+
+        # Add agent embeddings
+        agent_ids = torch.arange(n_agents, device=obs.device).unsqueeze(0).expand(batch_size, -1)
+        agent_embeds = self.agent_embedding(agent_ids)
+        obs_with_id = torch.cat([obs, agent_embeds], dim=-1)
+
+        # Extract room direction (indices 5-6 in base obs)
+        room_dir = obs[:, :, 5:7]
+
+        # Flatten for network
+        obs_flat = obs_with_id.view(-1, obs_dim + self.agent_embed_dim)
+        out = self.net(obs_flat)
+        out = out.view(batch_size, n_agents, -1)
+
+        # Split into adjustment and scale
+        adjustment_raw = out[..., :self.action_dim]
+        scale_raw = out[..., self.action_dim:]
+
+        # Bound adjustment with tanh
+        adjustment = torch.tanh(adjustment_raw)
+
+        # Goal-conditioned: room_dir * 0.25 + adjustment * 0.05
+        loc = room_dir * 0.25 + adjustment * 0.05
+        scale = torch.nn.functional.softplus(scale_raw) + self.min_std
+
+        # Reshape back if input was flat
+        if was_flat:
+            loc = loc.view(-1, self.action_dim)
+            scale = scale.view(-1, self.action_dim)
+        elif original_shape[0] == self.n_agents and len(original_shape) == 2:
+            loc = loc.squeeze(0)
+            scale = scale.squeeze(0)
+
         return loc, scale
 
 
@@ -174,9 +346,9 @@ class SimplePPOTrainer:
         self.policy = PolicyNetwork(obs_dim, action_dim, n_agents).to(device)
         self.critic = CriticNetwork(obs_dim, n_agents).to(device)
 
-        # Optimizers
-        self.policy_optim = torch.optim.Adam(self.policy.parameters(), lr=config["lr"])
-        self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=config["lr"])
+        # Optimizers with weight decay
+        self.policy_optim = torch.optim.AdamW(self.policy.parameters(), lr=config["lr"], weight_decay=0.01)
+        self.critic_optim = torch.optim.AdamW(self.critic.parameters(), lr=config["lr"], weight_decay=0.01)
 
         # Metrics
         self.metrics = {
@@ -417,11 +589,20 @@ def train_communication_comparison(config):
             n_agents=config["n_agents"],
             n_rooms=config["n_rooms"],
             room_capacity=config["room_capacity"],
-            max_steps=100,
+            max_steps=300,
+            phase_mode="claiming",
+            reward_modules=get_reward_modules(),
         )
 
         trainer_baseline = SimplePPOTrainer(env_baseline, config, DEVICE)
         metrics_baseline = trainer_baseline.train(config["total_frames"])
+
+        # Save model and generate GIF
+        baseline_dir = BASE_DIR / "communication" / "baseline"
+        torch.save({"policy": trainer_baseline.policy.state_dict()}, baseline_dir / "model.pt")
+        save_metrics(metrics_baseline, baseline_dir / "metrics.json")
+        generate_gif(env_baseline, trainer_baseline.policy, baseline_dir / "trained_policy.gif",
+                    "Communication: Baseline", config["n_agents"])
 
         results["baseline"].append({
             "seed": seed,
@@ -441,12 +622,21 @@ def train_communication_comparison(config):
                 n_agents=config["n_agents"],
                 n_rooms=config["n_rooms"],
                 room_capacity=config["room_capacity"],
-                max_steps=100,
+                max_steps=300,
+                phase_mode="claiming",
                 vocab_size=2,
+                reward_modules=get_reward_modules(),
             )
 
             trainer_comm = SimplePPOTrainer(env_comm, config, DEVICE)
             metrics_comm = trainer_comm.train(config["total_frames"])
+
+            # Save model and generate GIF
+            comm_dir = BASE_DIR / "communication" / "discrete_comm"
+            torch.save({"policy": trainer_comm.policy.state_dict()}, comm_dir / "model.pt")
+            save_metrics(metrics_comm, comm_dir / "metrics.json")
+            generate_gif(env_comm, trainer_comm.policy, comm_dir / "trained_policy.gif",
+                        "Communication: Discrete Comm", config["n_agents"])
 
             results["discrete_comm"].append({
                 "seed": seed,
@@ -462,7 +652,7 @@ def train_communication_comparison(config):
             results["discrete_comm"].append(None)
 
     # Save results
-    save_path = RESULTS_DIR / "communication" / "comparison_results.json"
+    save_path = BASE_DIR / "communication" / "comparison" / "comparison_results.json"
     save_results(results, save_path)
 
     # Generate plots
@@ -545,9 +735,10 @@ def plot_communication_results(results):
     ax.grid(alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(PLOTS_DIR / "communication_comparison.png", dpi=150)
+    plot_path = BASE_DIR / "communication" / "comparison" / "communication_comparison.png"
+    plt.savefig(plot_path, dpi=150)
     plt.close()
-    print(f"Plot saved to {PLOTS_DIR / 'communication_comparison.png'}")
+    print(f"Plot saved: {plot_path}")
 
 
 # ============================================================
@@ -579,7 +770,9 @@ def train_fairness_comparison(config):
                 n_agents=config["n_agents"],
                 n_rooms=config["n_rooms"],
                 room_capacity=config["room_capacity"],
-                max_steps=100,
+                max_steps=300,
+                phase_mode="claiming",
+                reward_modules=get_reward_modules(),
             )
 
             # Create fairness transform if needed
@@ -593,6 +786,14 @@ def train_fairness_comparison(config):
             trainer = SimplePPOTrainer(env, config, DEVICE, fairness_transform=transform)
             metrics = trainer.train(config["total_frames"])
 
+            # Save model and generate GIF
+            mode_folder = "baseline" if mode == "none" else ("participation" if mode == "participation_variance" else mode)
+            method_dir = BASE_DIR / "fairness" / mode_folder
+            torch.save({"policy": trainer.policy.state_dict()}, method_dir / "model.pt")
+            save_metrics(metrics, method_dir / "metrics.json")
+            generate_gif(env, trainer.policy, method_dir / "trained_policy.gif",
+                        f"Fairness: {name}", config["n_agents"])
+
             results[mode].append({
                 "seed": seed,
                 "rewards": metrics["rewards"],
@@ -604,7 +805,7 @@ def train_fairness_comparison(config):
             })
 
     # Save results
-    save_path = RESULTS_DIR / "fairness" / "comparison_results.json"
+    save_path = BASE_DIR / "fairness" / "comparison" / "comparison_results.json"
     save_results(results, save_path)
 
     # Generate plots
@@ -686,9 +887,10 @@ def plot_fairness_results(results, fairness_modes):
     ax.grid(alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(PLOTS_DIR / "fairness_comparison.png", dpi=150)
+    plot_path = BASE_DIR / "fairness" / "comparison" / "fairness_comparison.png"
+    plt.savefig(plot_path, dpi=150)
     plt.close()
-    print(f"Plot saved to {PLOTS_DIR / 'fairness_comparison.png'}")
+    print(f"Plot saved: {plot_path}")
 
 
 # ============================================================

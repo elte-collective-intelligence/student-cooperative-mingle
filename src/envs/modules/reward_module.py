@@ -153,15 +153,17 @@ class StayInRoomReward(RewardModule):
     KEY FEATURES:
     - High reward for being in a room with valid capacity
     - TIME-BASED PENALTY: Penalty for being outside increases over time
-    - LAST-AGENT PENALTY: Only penalize agents who entered LAST when room is overfilled
-      (agents closest to room center are "winners", furthest are penalized)
+    - LAST-AGENT PENALTY: Agents who entered LAST when room is overfilled are penalized
+      and FORCED to leave (their room_dir points to another room)
+    - LEAVING BONUS: Reward for overflow agents who are actively leaving
     """
     def __init__(
         self,
         phase_mode: str = "both",
         max_reward: float = 1.0,
         outside_penalty: float = 1.0,
-        overfill_penalty: float = 2.0,
+        overfill_penalty: float = 5.0,  # Strong penalty for being overflow
+        leaving_bonus: float = 2.0,  # Reward for leaving when forced
         time_penalty_start: int = 50,  # Start increasing penalty after this step
         time_penalty_scale: float = 0.02,  # How fast penalty increases
     ):
@@ -169,8 +171,10 @@ class StayInRoomReward(RewardModule):
         self.max_reward = max_reward
         self.outside_penalty = outside_penalty
         self.overfill_penalty = overfill_penalty
+        self.leaving_bonus = leaving_bonus
         self.time_penalty_start = time_penalty_start
         self.time_penalty_scale = time_penalty_scale
+        self.prev_forced_to_leave = None
 
     def _reward(self, env: "MingleEnv") -> Tensor:
         n_agents = env.n_agents
@@ -179,6 +183,9 @@ class StayInRoomReward(RewardModule):
 
         room_dists = torch.cdist(env.agent_positions, env.room_positions)
         room_capacity = env.room_capacity
+
+        # Use environment's forced_to_leave tracking (based on entry time)
+        forced_to_leave = getattr(env, 'forced_to_leave', torch.zeros(n_agents, dtype=torch.bool, device=device))
 
         # For each room, find which agents are inside
         for room_idx in range(env.n_rooms):
@@ -189,32 +196,53 @@ class StayInRoomReward(RewardModule):
             if inside_indices.numel() == 0:
                 continue
 
-            # Sort agents by distance to room center (closest first = winners)
-            distances = room_dist[inside_indices]
-            sorted_order = distances.argsort()
+            # Get entry times from environment
+            if hasattr(env, 'room_entry_time'):
+                entry_times = env.room_entry_time[inside_indices]
+                # Sort by entry time (ascending) - earliest first = winners
+                sorted_order = entry_times.argsort()
+            else:
+                # Fallback: sort by distance
+                distances = room_dist[inside_indices]
+                sorted_order = distances.argsort()
+
             sorted_agents = inside_indices[sorted_order]
 
-            # First room_capacity agents are valid, rest are penalized
+            # First room_capacity agents are valid (entered FIRST)
             valid_agents = sorted_agents[:room_capacity]
             excess_agents = sorted_agents[room_capacity:]
 
             # Valid agents get reward
             rewards[valid_agents] += self.max_reward
 
-            # ONLY excess agents (entered LAST / furthest from center) get penalized
+            # Excess agents (entered LAST) get strong penalty
             if excess_agents.numel() > 0:
                 rewards[excess_agents] -= self.overfill_penalty
+
+        # LEAVING BONUS: Reward agents who were forced to leave and are now leaving
+        if self.prev_forced_to_leave is not None:
+            # Check if previously forced agents are now outside the room they were in
+            for i in range(n_agents):
+                if self.prev_forced_to_leave[i] and not forced_to_leave[i]:
+                    # Agent successfully left! Give bonus
+                    rewards[i] += self.leaving_bonus
+
+        # Update prev state
+        self.prev_forced_to_leave = forced_to_leave.clone()
 
         # Agents outside all rooms
         in_any_room = (room_dists < env.room_radius).any(dim=1)
         outside_agents = ~in_any_room
+
+        # Don't penalize agents who are forced to leave and actively moving
+        truly_outside = outside_agents & ~forced_to_leave
 
         # TIME-BASED PENALTY: increases over time
         current_step = env.current_step if hasattr(env, 'current_step') else 0
         time_factor = max(0, current_step - self.time_penalty_start) * self.time_penalty_scale
         dynamic_penalty = self.outside_penalty * (1.0 + time_factor)
 
-        rewards[outside_agents] -= dynamic_penalty
+        rewards[truly_outside] -= dynamic_penalty
 
         return rewards
 

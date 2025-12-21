@@ -1,17 +1,17 @@
 {
-  "PPO": {
-    "final_reward": 1270.0089271247386,
-    "max_reward": 5047.801328659058,
-    "total_episodes": 49
+  "ppo": {
+    "final_reward": 31085.830196762086,
+    "peak_reward": 34349.44584274292,
+    "gini": 0.1437211344298038
   },
-  "IPPO": {
-    "final_reward": 683.7896472930909,
-    "max_reward": 4135.17144036293,
-    "total_episodes": 49
+  "ippo": {
+    "final_reward": 31439.53792362213,
+    "peak_reward": 34810.47581863403,
+    "gini": 0.13122681739444855
   },
-  "MAPPO": {
-    "final_reward": 1496.481774663925,
-    "max_reward": 5049.7348074913025,
-    "total_episodes": 49
+  "mappo": {
+    "final_reward": 31700.413373184205,
+    "peak_reward": 34187.15079879761,
+    "gini": 0.1257045295119567
   }
 }

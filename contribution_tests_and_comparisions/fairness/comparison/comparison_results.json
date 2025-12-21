@@ -1,0 +1,14 @@
+{
+  "Baseline": {
+    "final_reward": 32046.92387714386,
+    "final_gini": 0.13536718078156104
+  },
+  "Gini": {
+    "final_reward": 31558.701981258393,
+    "final_gini": 0.11090654030693106
+  },
+  "Participation": {
+    "final_reward": 31430.76972351074,
+    "final_gini": 0.11660675793678739
+  }
+}

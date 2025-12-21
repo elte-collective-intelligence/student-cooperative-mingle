@@ -1,0 +1,10 @@
+{
+  "Baseline": {
+    "final_reward": 32487.03827610016,
+    "final_gini": 0.08526648897660877
+  },
+  "Curriculum": {
+    "final_reward": 31924.823551368714,
+    "final_gini": 0.10092483375069357
+  }
+}

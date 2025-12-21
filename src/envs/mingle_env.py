@@ -70,8 +70,26 @@ class MingleEnv(EnvBase):
         self.room_positions = None
         self.room_occupancy = None
 
+        # Track room entry times for each agent (-1 = not in any room)
+        self.room_entry_time = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+        self.agent_current_room = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+        self.forced_to_leave = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
+
+        # ============ COMMUNICATION SYSTEM ============
+        # Leader-follower pairing with "follow me" and "full" messages
+        # - Leaders (n/2 agents) broadcast "follow me"
+        # - Followers choose a leader to follow
+        # - If leader already has a follower, broadcasts "full"
+        self.enable_communication = False  # Set to True to enable
+        self.is_leader = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
+        self.leader_message = torch.zeros(self.n_agents, dtype=torch.long, device=self.device)  # 0=follow_me, 1=full
+        self.following = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)  # Who each agent follows
+        self.follower_count = torch.zeros(self.n_agents, dtype=torch.long, device=self.device)  # How many followers each leader has
+
+        # Observation includes communication: base(14) + comm(4) = 18
+        obs_dim = 18 if self.enable_communication else 14
         self.observation_spec = Composite({
-            "observation": Unbounded(shape=(self.n_agents, 14), device=self.device),
+            "observation": Unbounded(shape=(self.n_agents, obs_dim), device=self.device),
         })
         self.action_spec = Composite({
             "action": Bounded(
@@ -155,24 +173,107 @@ class MingleEnv(EnvBase):
             # Distance to rooms (REVEALED)
             room_dists = torch.cdist(pos, self.room_positions)
             closest_room = room_dists.argmin(dim=1)
-            dist_to_room = room_dists[torch.arange(self.n_agents), closest_room].unsqueeze(1) / self.arena_radius
 
-            # Direction to closest room
-            delta_room = self.room_positions[closest_room] - pos
-            nearest_room_dir = delta_room / (delta_room.norm(dim=1, keepdim=True) + 1e-8)
-
-            # Signed distance to edge of the closest room (normalized)
-            raw_room_dist = room_dists[torch.arange(self.n_agents), closest_room].unsqueeze(1)
-            signed_dist_to_room_edge = (self.room_radius - raw_room_dist) / self.room_radius
-
-            # Room occupancy computation (ONLY during claiming)
+            # ============ TRACK ROOM ENTRY TIMES ============
+            # Check which agents are currently inside rooms
             assignments = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
             for i in range(self.n_agents):
                 close_rooms = (room_dists[i] < self.room_radius).nonzero(as_tuple=True)[0]
                 if close_rooms.numel() > 0:
                     closest = close_rooms[room_dists[i, close_rooms].argmin()]
                     assignments[i] = closest
+
+            # Update entry times
+            for i in range(self.n_agents):
+                current_room = assignments[i].item()
+                prev_room = self.agent_current_room[i].item()
+
+                if current_room >= 0 and prev_room != current_room:
+                    # Agent just entered a new room - record entry time
+                    self.room_entry_time[i] = self.current_step
+                    self.agent_current_room[i] = current_room
+                elif current_room < 0:
+                    # Agent left all rooms
+                    self.room_entry_time[i] = -1
+                    self.agent_current_room[i] = -1
+
             self.room_occupancy = torch.bincount(assignments[assignments >= 0], minlength=self.n_rooms)
+
+            # ============ FIND OVERFLOW AGENTS (LAST TO ENTER) ============
+            self.forced_to_leave.fill_(False)
+
+            for room_idx in range(self.n_rooms):
+                if self.room_occupancy[room_idx] > self.room_capacity:
+                    # Find all agents in this room
+                    agents_in_room = (assignments == room_idx).nonzero(as_tuple=True)[0]
+
+                    if agents_in_room.numel() > self.room_capacity:
+                        # Get entry times for these agents
+                        entry_times = self.room_entry_time[agents_in_room]
+
+                        # Sort by entry time (ascending) - earliest first
+                        sorted_indices = entry_times.argsort()
+                        sorted_agents = agents_in_room[sorted_indices]
+
+                        # Agents who entered LAST must leave (overflow agents)
+                        overflow_agents = sorted_agents[self.room_capacity:]
+                        self.forced_to_leave[overflow_agents] = True
+
+            # ============ COMPUTE ROOM DIRECTIONS ============
+            # ALL agents should be directed to nearest NON-FULL room
+            # Never direct an agent to a room that's already at capacity!
+
+            nearest_room_dir = torch.zeros((self.n_agents, 2), device=self.device)
+            dist_to_room = torch.zeros((self.n_agents, 1), device=self.device)
+
+            for i in range(self.n_agents):
+                current_room = self.agent_current_room[i].item()
+
+                # Check if agent is already a valid occupant in a room
+                is_valid_in_room = (current_room >= 0 and
+                                   not self.forced_to_leave[i] and
+                                   self.room_occupancy[current_room] <= self.room_capacity)
+
+                if is_valid_in_room:
+                    # Agent is validly in a room - point to current room (stay)
+                    delta = self.room_positions[current_room] - pos[i]
+                    nearest_room_dir[i] = delta / (delta.norm() + 1e-8)
+                    dist_to_room[i] = room_dists[i, current_room].item() / self.arena_radius
+                else:
+                    # Agent needs to find a room - find nearest NON-FULL room
+                    best_room = -1
+                    best_dist = float('inf')
+
+                    for r in range(self.n_rooms):
+                        # Skip current room if agent is forced to leave
+                        if self.forced_to_leave[i] and r == current_room:
+                            continue
+
+                        # Only consider rooms with available capacity
+                        if self.room_occupancy[r] < self.room_capacity:
+                            d = room_dists[i, r].item()
+                            if d < best_dist:
+                                best_dist = d
+                                best_room = r
+
+                    if best_room >= 0:
+                        # Point to nearest available room
+                        delta = self.room_positions[best_room] - pos[i]
+                        nearest_room_dir[i] = delta / (delta.norm() + 1e-8)
+                        dist_to_room[i] = best_dist / self.arena_radius
+                    else:
+                        # All rooms full - point to center (wait area)
+                        delta = -pos[i]  # Direction to center
+                        norm = delta.norm()
+                        if norm > 0.1:
+                            nearest_room_dir[i] = delta / norm
+                        else:
+                            nearest_room_dir[i] = torch.zeros(2, device=self.device)
+                        dist_to_room[i] = 1.0
+
+            # Signed distance to edge of the closest room (normalized)
+            raw_room_dist = room_dists[torch.arange(self.n_agents), closest_room].unsqueeze(1)
+            signed_dist_to_room_edge = (self.room_radius - raw_room_dist) / self.room_radius
 
             capacity_tensor = torch.full((self.n_agents, 1), self.room_capacity, device=self.device)
             occupancy_tensor = self.room_occupancy[closest_room].unsqueeze(1).float() / self.room_capacity
@@ -199,7 +300,51 @@ class MingleEnv(EnvBase):
 
         phase_flag = torch.full((self.n_agents, 1), 1.0 if self.phase == "claiming" else 0.0, device=self.device)
 
-        obs = torch.cat([
+        # ============ COMMUNICATION UPDATE ============
+        if self.enable_communication:
+            # Update follower-leader pairing based on "full" messages
+            followers = (~self.is_leader).nonzero(as_tuple=True)[0]
+            leaders = self.is_leader.nonzero(as_tuple=True)[0]
+
+            for f in followers:
+                current_leader = self.following[f].item()
+                if current_leader >= 0:
+                    # Check if current leader says "full" AND has more than 1 follower
+                    if self.leader_message[current_leader] == 1 and self.follower_count[current_leader] > 1:
+                        # Find another leader who is NOT full
+                        available_leaders = leaders[self.leader_message[leaders] == 0]
+                        if len(available_leaders) > 0:
+                            # Switch to available leader
+                            self.follower_count[current_leader] -= 1
+                            new_leader = available_leaders[torch.randint(len(available_leaders), (1,)).item()]
+                            self.following[f] = new_leader
+                            self.follower_count[new_leader] += 1
+
+            # Update leader messages based on follower count
+            self.leader_message.fill_(0)  # Reset to "follow me"
+            self.leader_message[self.follower_count > 1] = 1  # "full" if more than 1 follower
+
+            # Compute communication features for observation
+            # comm_obs: [is_leader, leader_message, direction_to_leader_x, direction_to_leader_y]
+            comm_obs = torch.zeros((self.n_agents, 4), device=self.device)
+
+            for i in range(self.n_agents):
+                comm_obs[i, 0] = 1.0 if self.is_leader[i] else 0.0
+                if self.is_leader[i]:
+                    comm_obs[i, 1] = float(self.leader_message[i])  # 0=follow_me, 1=full
+                else:
+                    # Follower: direction to their leader
+                    leader_idx = self.following[i].item()
+                    if leader_idx >= 0:
+                        delta = pos[leader_idx] - pos[i]
+                        norm = delta.norm()
+                        if norm > 0.01:
+                            comm_obs[i, 2:4] = delta / norm
+                        # Also include leader's message
+                        comm_obs[i, 1] = float(self.leader_message[leader_idx])
+
+        # Build observation
+        base_obs = torch.cat([
             dist_to_center.clamp(0, 1),
             direction_to_center,
             dist_to_center_edge,
@@ -212,6 +357,11 @@ class MingleEnv(EnvBase):
             nearest_directions,
             phase_flag
         ], dim=1)
+
+        if self.enable_communication:
+            obs = torch.cat([base_obs, comm_obs], dim=1)
+        else:
+            obs = base_obs
 
         if torch.isnan(obs).any() or torch.isinf(obs).any():
             obs = torch.nan_to_num(obs)
@@ -246,6 +396,39 @@ class MingleEnv(EnvBase):
 
         # Track previous target room for switch penalty
         self.prev_target_room = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+
+        # Reset room entry tracking
+        self.room_entry_time = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+        self.agent_current_room = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+        self.forced_to_leave = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
+
+        # ============ RESET COMMUNICATION ============
+        if self.enable_communication:
+            # Randomly designate n/2 agents as leaders
+            n_leaders = self.n_agents // 2
+            leader_indices = torch.randperm(self.n_agents)[:n_leaders]
+            self.is_leader = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
+            self.is_leader[leader_indices] = True
+
+            # All leaders start with "follow me" message (0)
+            self.leader_message = torch.zeros(self.n_agents, dtype=torch.long, device=self.device)
+
+            # Reset follower assignments
+            self.following = torch.full((self.n_agents,), -1, dtype=torch.long, device=self.device)
+            self.follower_count = torch.zeros(self.n_agents, dtype=torch.long, device=self.device)
+
+            # Followers randomly pick initial leaders
+            followers = (~self.is_leader).nonzero(as_tuple=True)[0]
+            leaders = self.is_leader.nonzero(as_tuple=True)[0]
+
+            for f in followers:
+                # Pick a random leader
+                chosen = leaders[torch.randint(len(leaders), (1,)).item()]
+                self.following[f] = chosen
+                self.follower_count[chosen] += 1
+
+            # Leaders with more than 1 follower say "full"
+            self.leader_message[self.follower_count > 1] = 1  # 1 = "full"
 
         # Track success state for early termination
         self.success_achieved = False

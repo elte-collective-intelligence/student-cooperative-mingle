@@ -1,0 +1,12 @@
+{
+  "Baseline": {
+    "final_reward": 31502.266583633424,
+    "final_gini": 0.12568130838218544
+  },
+  "Full_Stack": {
+    "final_reward": 32140.324406814576,
+    "final_gini": 0.11637642573550204
+  },
+  "improvement_reward_pct": 2.0254346508280983,
+  "improvement_gini_pct": 7.403553294009399
+}

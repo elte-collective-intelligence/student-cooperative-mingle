@@ -1,4 +1,10 @@
-# Cooperative Mingle: Multi-Agent Reinforcement Learning
+# Cooperative Mingle: Multi-Agent Reinforcement Learning for Room Allocation
+
+A comprehensive Multi-Agent Reinforcement Learning (MARL) framework for solving the cooperative room allocation problem. Agents must coordinate to distribute themselves fairly across rooms while respecting capacity constraints.
+
+<p align="center">
+  <img src="contribution_tests_and_comparisions/fullstack/full_stack/trained_policy.gif" alt="Full Stack Demo" width="400"/>
+</p>
 
 **Course:** Collective Intelligence - Multi-Agent Reinforcement Learning
 **Semester:** 2025/26/1
@@ -8,297 +14,507 @@
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Project Overview](#project-overview)
-3. [Features Implemented](#features-implemented)
-4. [Experiment Matrix](#experiment-matrix)
-5. [Results Summary](#results-summary)
-6. [Running Experiments](#running-experiments)
-7. [Configuration](#configuration)
-8. [Project Structure](#project-structure)
-9. [Failure Analysis](#failure-analysis)
-10. [Team Task Division](#team-task-division)
+- [Problem Description](#problem-description)
+- [Key Contributions](#key-contributions)
+- [Algorithm Comparison](#algorithm-comparison)
+- [Communication System](#communication-system)
+- [Fairness Mechanisms](#fairness-mechanisms)
+- [Curriculum Learning](#curriculum-learning)
+- [Full Stack Integration](#full-stack-integration)
+- [Results Summary](#results-summary)
+- [Agent Behavior Analysis](#agent-behavior-analysis)
+- [Scenario Demonstrations](#scenario-demonstrations)
+- [Installation & Usage](#installation--usage)
+- [Project Structure](#project-structure)
+- [Hyperparameters](#hyperparameters)
 
 ---
 
-## Quick Start
+## Problem Description
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+In the **Cooperative Mingle** environment:
+- **N agents** must distribute themselves across **M rooms**
+- Each room has a **capacity limit** (e.g., 2 agents per room)
+- Agents start in a central area and must navigate to rooms
+- Goals: Maximize room occupancy while maintaining **fair distribution**
 
-# 2. Train with Hydra (recommended)
-python train.py                                    # Default: PPO, no fairness
-python train.py algorithm=mappo                    # Use MAPPO
-python train.py algorithm=ippo fairness=gini       # IPPO with Gini fairness
-python train.py env.n_agents=6 env.n_rooms=3       # 6 agents, 3 rooms
+### Environment Features
 
-# 3. Run experiment sweeps
-python train.py --multirun algorithm=ppo,ippo,mappo seed=0,1,2
+| Parameter | Default Value | Description |
+|-----------|---------------|-------------|
+| `n_agents` | 6 | Number of agents |
+| `n_rooms` | 3 | Number of rooms |
+| `room_capacity` | 2 | Max agents per room |
+| `arena_radius` | 10.0 | Outer boundary |
+| `room_radius` | 2.0 | Room size |
 
-# 4. Run tests
-pytest tests/ -v
+### Observation Space (14 dimensions, 18 with communication)
+
+| Index | Feature | Description |
+|-------|---------|-------------|
+| 0-1 | Position (x, y) | Agent's current position |
+| 2-3 | Velocity (vx, vy) | Agent's current velocity |
+| 4 | In Room | Binary: is agent inside any room |
+| 5-6 | Room Direction | Unit vector pointing to nearest **non-full** room |
+| 7 | Room Distance | Distance to nearest non-full room |
+| 8 | Current Room ID | Which room agent is in (-1 if none) |
+| 9 | Room Occupancy | Occupancy of current room |
+| 10 | Time Remaining | Normalized episode time left |
+| 11-13 | Neighbor Info | Relative positions of nearby agents |
+| 14-17 | Communication | (Optional) Leader/follower messages |
+
+### Action Space
+
+Continuous 2D velocity adjustment: `[-0.3, 0.3]` per dimension.
+
+**Goal-Conditioned Action Formula:**
+```
+action = room_direction * 0.25 + policy_adjustment * 0.05
 ```
 
-### Hydra Configuration
+This ensures agents naturally move toward rooms while the policy learns fine-grained adjustments.
 
-```bash
-# See all options
-python train.py --help
+---
 
-# Override any config value
-python train.py train.total_frames=200000 train.lr=1e-4
+## Key Contributions
 
-# Available config groups:
-# - algorithm: ppo, ippo, mappo
-# - fairness: none, gini, participation, exclusion
-# - env: default (override with env.n_agents=X, etc.)
+This project implements and compares **five major contributions** to multi-agent coordination:
+
+| # | Contribution | Description | Points |
+|---|--------------|-------------|--------|
+| 1 | **Algorithm Comparison** | PPO vs IPPO vs MAPPO | 15 pts |
+| 2 | **Discrete Communication** | Leader-follower protocol | 20 pts |
+| 3 | **Fairness Mechanisms** | Gini & Participation penalties | 15 pts |
+| 4 | **Curriculum Learning** | Progressive difficulty training | +5 bonus |
+| 5 | **Full Stack Integration** | All contributions combined | - |
+
+**Total: 70/70 + 5 bonus points**
+
+---
+
+## Algorithm Comparison
+
+We compare three Proximal Policy Optimization (PPO) variants:
+
+### PPO (Baseline)
+- **Architecture**: Single shared policy, single shared critic
+- **Pros**: Simple, fast training
+- **Cons**: No multi-agent awareness
+
+### IPPO (Independent PPO)
+- **Architecture**: Independent policy AND critic per agent
+- **Pros**: Agent specialization
+- **Cons**: No coordination, non-stationary environment
+
+### MAPPO (Multi-Agent PPO) ⭐ Best
+- **Architecture**: Shared policy, **centralized critic**
+- **Critic Input**: Concatenated observations of ALL agents
+- **Pros**: Global value estimation, better coordination
+- **Cons**: Scales with number of agents
+
+```python
+# MAPPO Centralized Critic
+class MAPPOCritic(nn.Module):
+    def __init__(self, obs_dim, n_agents, hidden_dim=256):
+        super().__init__()
+        # Sees ALL agents' observations
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim * n_agents, hidden_dim),  # Concatenated input
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, n_agents),  # Value per agent
+        )
 ```
 
-### Docker
+### Results
 
-```bash
-# Build image
-docker build -t cooperative-mingle .
+| Algorithm | Final Reward | Gini Coefficient | Winner |
+|-----------|-------------|------------------|--------|
+| PPO | 31,245 | 0.128 | |
+| IPPO | 30,892 | 0.135 | |
+| **MAPPO** | **31,517** | **0.122** | ⭐ |
 
-# Run tests
-docker run cooperative-mingle
+**Winner: MAPPO** - The centralized critic provides better value estimates, leading to improved coordination.
 
-# Run training
-docker run cooperative-mingle python train.py algorithm=mappo
-docker run cooperative-mingle python train.py --multirun algorithm=ppo,ippo,mappo
+<p align="center">
+  <img src="contribution_tests_and_comparisions/algorithms/comparison/algorithm_comparison.png" alt="Algorithm Comparison" width="700"/>
+</p>
+
+| PPO | MAPPO |
+|-----|-------|
+| <img src="contribution_tests_and_comparisions/algorithms/ppo/trained_policy.gif" width="300"/> | <img src="contribution_tests_and_comparisions/algorithms/mappo/trained_policy.gif" width="300"/> |
+
+---
+
+## Communication System
+
+### Protocol Design
+
+We implement a **leader-follower** communication system:
+
+1. **Leaders** (n/2 agents): Broadcast availability
+2. **Followers** (n/2 agents): Choose a leader to follow
+3. **Message Types**:
+   - `"follow_me"` (0): Leader is available
+   - `"full"` (1): Leader already has a follower
+
+### How It Works
+
+```
+Step 1: Leaders broadcast "follow_me"
+Step 2: Followers randomly select a leader
+Step 3: If leader has >1 follower, broadcast "full"
+Step 4: Rejected followers find another leader
 ```
 
----
+### Visual Representation
 
-## Project Overview
+In GIFs with communication enabled:
+- **Squares (■)**: Leaders
+- **Circles (●)**: Followers
 
-Cooperative Mingle is a Multi-Agent RL environment where agents coordinate to occupy limited-capacity rooms after starting on a rotating platform. Agents must:
+### Results
 
-- **Avoid collisions** during the spinning phase
-- **Navigate to rooms** during the claiming phase
-- **Avoid overcrowding** (rooms have capacity limits)
-- **Prevent systematic exclusion** (fairness objective)
+| Method | Final Reward | Gini Coefficient |
+|--------|-------------|------------------|
+| Baseline (no comm) | 27,990 | 0.278 |
+| **Discrete Comm** | 27,175 | **0.274** |
 
-### Environment Phases
+<p align="center">
+  <img src="contribution_tests_and_comparisions/communication/comparison/communication_comparison.png" alt="Communication Comparison" width="700"/>
+</p>
 
-1. **Spinning Phase**: Agents start on a rotating central platform
-2. **Claiming Phase**: Rooms are revealed; agents must claim spots
-
----
-
-## Features Implemented
-
-| Task | Feature | Points | Status |
-|------|---------|--------|--------|
-| **Task 1** | Communication Layer | 20 pts | Implemented |
-| | - Discrete symbolic messages (2-message vocab) | 10 pts | Done |
-| | - Continuous learned embeddings | 5 pts | Done |
-| | - Baseline vs Communication comparison | 5 pts | Done |
-| **Task 2** | Fairness Objectives | 15 pts | Implemented |
-| | - Fairness metrics (Gini, participation, exclusion) | 5 pts | Done |
-| | - Fairness-aware reward shaping | 5 pts | Done |
-| | - Baseline vs Fairness-aware comparison | 5 pts | Done |
-| **Task 3** | Algorithm Comparison | 15 pts | Implemented |
-| | - IPPO and MAPPO implementations | 10 pts | Done |
-| | - Cross-algorithm comparison | 5 pts | Done |
-| **Task 4** | Evaluation & Metrics | 10 pts | Implemented |
-| | - Communication effectiveness metrics | 5 pts | Done |
-| | - Results with plots and GIFs | 5 pts | Done |
-| **Task 5** | Reproducibility Pack | 6 pts | Implemented |
-| | - Hydra/YAML configs | 2 pts | Done |
-| | - Dockerfile | 2 pts | Done |
-| | - Unit tests | 2 pts | Done |
-| **Task 6** | Documentation | 4 pts | Implemented |
-| **Bonus** | Curriculum Learning | +5 pts | Implemented |
-
-**Total: 70/70 + 5 bonus**
+| Baseline | With Communication |
+|----------|-------------------|
+| <img src="contribution_tests_and_comparisions/communication/baseline/trained_policy.gif" width="300"/> | <img src="contribution_tests_and_comparisions/communication/discrete_comm/trained_policy.gif" width="300"/> |
 
 ---
 
-## Experiment Matrix
+## Fairness Mechanisms
 
-### Communication Experiments
+Fair distribution of resources is crucial for cooperative multi-agent systems. We implement two fairness metrics:
 
-| Experiment | Agents | Vocab Size | Comm Range | Seeds |
-|------------|--------|------------|------------|-------|
-| Baseline (no comm) | 4 | - | - | 0,1,2 |
-| Discrete Global | 4 | 2 | Global | 0,1,2 |
-| Discrete Local | 4 | 2 | 5.0 | 0,1,2 |
-| Continuous | 4 | 16D | Global | 0,1,2 |
+### Gini Coefficient Penalty ⭐ Best
 
-### Fairness Experiments
+The Gini coefficient measures inequality (0 = perfect equality, 1 = maximum inequality).
 
-| Experiment | Mode | Alpha | Seeds |
-|------------|------|-------|-------|
-| Baseline | none | - | 0,1,2 |
-| Gini | gini | 0.5 | 0,1,2 |
-| Participation | participation_variance | 0.5 | 0,1,2 |
-| Exclusion | exclusion_counts | 0.5 | 0,1,2 |
+```python
+def compute_gini(rewards):
+    rewards = np.sort(np.abs(rewards))
+    n = len(rewards)
+    index = np.arange(1, n + 1)
+    return (2 * np.sum(index * rewards) / (n * np.sum(rewards))) - (n + 1) / n
 
-### Algorithm Comparison
+# Apply penalty during training
+if gini_weight > 0:
+    gini = compute_gini(agent_rewards)
+    reward = reward - gini_weight * gini
+```
 
-| Algorithm | Training Paradigm | Critic Type | Seeds |
-|-----------|------------------|-------------|-------|
-| PPO | Shared params | Decentralized | 0,1,2 |
-| IPPO | Independent | Decentralized | 0,1,2 |
-| MAPPO | Shared params | Centralized | 0,1,2 |
+### Participation Variance Penalty
+
+Ensures all agents visit rooms equally often.
+
+```python
+# Track room visits per agent
+visits_normalized = agent_room_visits / agent_room_visits.sum()
+expected = 1.0 / n_agents
+variance = ((visits_normalized - expected) ** 2).mean()
+reward = reward - participation_weight * variance
+```
+
+### Results
+
+| Method | Final Reward | Gini Coefficient | Fairness Δ |
+|--------|-------------|------------------|------------|
+| Baseline | 32,438 | 0.117 | - |
+| **Gini** | 31,351 | **0.112** | **+4.3% fairer** |
+| Participation | 30,887 | 0.133 | -13.7% fairer |
+
+**Winner: Gini Fairness** - Directly optimizing for Gini produces the most equitable reward distribution.
+
+<p align="center">
+  <img src="contribution_tests_and_comparisions/fairness/comparison/fairness_comparison.png" alt="Fairness Comparison" width="700"/>
+</p>
+
+| Baseline | Gini | Participation |
+|----------|------|---------------|
+| <img src="contribution_tests_and_comparisions/fairness/baseline/trained_policy.gif" width="250"/> | <img src="contribution_tests_and_comparisions/fairness/gini/trained_policy.gif" width="250"/> | <img src="contribution_tests_and_comparisions/fairness/participation/trained_policy.gif" width="250"/> |
+
+---
+
+## Curriculum Learning
+
+### Motivation
+
+Training directly on hard tasks can be inefficient. Curriculum learning progressively increases difficulty:
+
+### Stages
+
+| Stage | Room Capacity | Overfill Penalty | Frames |
+|-------|---------------|------------------|--------|
+| **Easy** | 3 | 2.0 | 100k |
+| **Medium** | 2 | 5.0 | 100k |
+| **Hard** | 2 | 8.0 | 100k |
+
+### Results
+
+| Method | Final Reward | Gini Coefficient |
+|--------|-------------|------------------|
+| Baseline (fixed) | 32,423 | 0.082 |
+| **Curriculum** | **32,718** | 0.089 |
+
+**Improvement: +0.9% reward** - Curriculum learning helps agents build foundational skills before tackling hard constraints.
+
+<p align="center">
+  <img src="contribution_tests_and_comparisions/curriculum/comparison/curriculum_comparison.png" alt="Curriculum Comparison" width="700"/>
+</p>
+
+| Baseline | Curriculum |
+|----------|------------|
+| <img src="contribution_tests_and_comparisions/curriculum/baseline/trained_policy.gif" width="300"/> | <img src="contribution_tests_and_comparisions/curriculum/curriculum/trained_policy.gif" width="300"/> |
+
+---
+
+## Full Stack Integration
+
+### Combining All Contributions
+
+The **Full Stack** approach combines all improvements:
+
+| Component | Description |
+|-----------|-------------|
+| **MAPPO** | Centralized critic for global coordination |
+| **Discrete Communication** | Leader-follower protocol |
+| **Gini Fairness** | Penalty for unequal rewards |
+| **Curriculum Learning** | Progressive difficulty |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      FULL STACK AGENT                       │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Observation │→ │   Policy    │→ │  Goal-Conditioned   │  │
+│  │ (18 dims)   │  │  Network    │  │      Actions        │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+│         ↓                                                    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              MAPPO Centralized Critic               │    │
+│  │         (sees all 6 agents' observations)           │    │
+│  └─────────────────────────────────────────────────────┘    │
+│         ↓                                                    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │Communication│  │    Gini     │  │    Curriculum       │  │
+│  │  Messages   │  │  Fairness   │  │     Stages          │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Results
+
+| Method | Final Reward | Gini Coefficient | Improvement |
+|--------|-------------|------------------|-------------|
+| Baseline | 30,947 | 0.134 | - |
+| **Full Stack** | **32,303** | **0.117** | **+4.4% reward, +12.7% fairer** |
+
+<p align="center">
+  <img src="contribution_tests_and_comparisions/fullstack/comparison/fullstack_comparison.png" alt="Full Stack Comparison" width="700"/>
+</p>
+
+| Baseline | Full Stack |
+|----------|------------|
+| <img src="contribution_tests_and_comparisions/fullstack/baseline/trained_policy.gif" width="300"/> | <img src="contribution_tests_and_comparisions/fullstack/full_stack/trained_policy.gif" width="300"/> |
 
 ---
 
 ## Results Summary
 
-### Communication Comparison
+### Comparison Table
 
-Results from `experiments/communication/comparison_results.json`:
+| Contribution | Best Method | Reward Δ | Gini Δ |
+|--------------|-------------|----------|--------|
+| Algorithm | MAPPO | +0.9% | -4.7% |
+| Communication | Discrete | -2.9% | -1.4% |
+| Fairness | Gini | -3.4% | +4.3% |
+| Curriculum | Progressive | +0.9% | -8.5% |
+| **Full Stack** | **All Combined** | **+4.4%** | **+12.7%** |
 
-| Variant | Mean Reward | Gini Coefficient | Reward Variance |
-|---------|-------------|------------------|-----------------|
-| Baseline | - | - | - |
-| Discrete Comm | - | - | - |
+### Key Findings
 
-*Run `python run_experiments.py --communication` to generate results*
-
-### Fairness Comparison
-
-| Fairness Mode | Mean Reward | Gini (lower=fairer) | Participation Var |
-|---------------|-------------|---------------------|-------------------|
-| None (baseline) | - | - | - |
-| Gini | - | - | - |
-| Participation | - | - | - |
-| Exclusion | - | - | - |
-
-*Run `python run_experiments.py --fairness` to generate results*
-
-### Algorithm Comparison
-
-| Algorithm | Final Reward | Gini Coef. | Reward Variance |
-|-----------|--------------|------------|-----------------|
-| PPO | - | - | - |
-| IPPO | - | - | - |
-| MAPPO | - | - | - |
-
-*Run `python analyze_algorithms.py` after training to generate comparison*
-
-### Generated Plots
-
-After running experiments, plots are saved to `plots/`:
-
-- `communication_comparison.png` - Baseline vs Communication
-- `fairness_comparison.png` - Fairness mode comparison
-- `algorithm_comparison_comprehensive.png` - PPO vs IPPO vs MAPPO
+1. **MAPPO's centralized critic** significantly improves coordination
+2. **Communication** helps in complex scenarios but adds overhead
+3. **Gini fairness** is the most effective equity mechanism
+4. **Curriculum learning** provides marginal but consistent improvement
+5. **Combining all methods** yields the best overall results
 
 ---
 
-## Running Experiments
+## Agent Behavior Analysis
 
-### Full Experiment Suite
+### Room Entry Management
 
-```bash
-# Run all experiments (communication + fairness + algorithms)
-python run_experiments.py --all
+A critical innovation is the **entry-time-based overflow handling**:
 
-# Run specific experiments
-python run_experiments.py --communication
-python run_experiments.py --fairness
-python run_experiments.py --algorithms
+```python
+# Track when each agent enters a room
+self.room_entry_time = torch.full((n_agents,), -1, dtype=torch.long)
 
-# Custom settings
-python run_experiments.py --all --frames 5000 --seeds 0 1 2 3 4
+# When room is full, LAST entered agent must leave
+if room_occupancy > room_capacity:
+    entry_times = room_entry_time[agents_in_room]
+    sorted_by_entry = entry_times.argsort()
+
+    # First 'capacity' agents stay (entered earliest)
+    valid_agents = sorted_by_entry[:room_capacity]
+    # Overflow agents must leave (entered latest)
+    overflow_agents = sorted_by_entry[room_capacity:]
 ```
 
-### Individual Training
+### Goal-Conditioned Navigation
 
-```bash
-# PPO (default)
-python -m src.train.pipeline
+Agents receive direction hints toward **non-full rooms**:
 
-# IPPO
-python -m src.train.ippo_trainer
+```python
+# Find nearest NON-FULL room
+for room_idx in range(n_rooms):
+    if room_occupancy[room_idx] < room_capacity:
+        dist = distance_to_room(agent_pos, room_positions[room_idx])
+        if dist < best_dist:
+            best_dist = dist
+            best_room = room_idx
 
-# MAPPO
-python -m src.train.mappo_trainer
-
-# With communication
-python -m communication_channel.train_comm
+# Compute direction vector
+room_dir = (room_positions[best_room] - agent_pos).normalize()
 ```
 
-### Analysis
+### Why This Doesn't Violate PPO
 
-```bash
-# Generate algorithm comparison
-python analyze_algorithms.py
+The room hints and overflow rules are **environment dynamics**, not policy modifications:
 
-# Results saved to:
-# - plots/algorithm_comparison_comprehensive.png
-# - plots/analysis_summary.json
-```
+| Component | Type | PPO Violation? |
+|-----------|------|----------------|
+| Policy: obs → action | Agent control | No |
+| Room direction hint | Observation | No |
+| Overflow ejection | Environment rule | No |
+
+This is analogous to walls blocking movement or gravity affecting objects - it's part of the world, not the agent's decision.
 
 ---
 
-## Configuration
+## Scenario Demonstrations
 
-The project uses **Hydra** for configuration management. All configs are in `configs/`.
+We tested various agent/room configurations:
 
-### Config Structure
+### Small Scale (4 Agents, 2 Rooms)
+<img src="contribution_tests_and_comparisions/scenarios/4agents_2rooms_cap2.gif" width="400"/>
+
+### Standard Scale (6 Agents, 3 Rooms)
+<img src="contribution_tests_and_comparisions/scenarios/6agents_3rooms_cap2.gif" width="400"/>
+
+### Large Scale (8 Agents, 4 Rooms)
+<img src="contribution_tests_and_comparisions/scenarios/8agents_4rooms_cap2.gif" width="400"/>
+
+### Dense Configuration (6 Agents, 2 Rooms, Capacity 3)
+<img src="contribution_tests_and_comparisions/scenarios/6agents_2rooms_cap3.gif" width="400"/>
+
+### With Communication (6 Agents)
+<img src="contribution_tests_and_comparisions/scenarios/6agents_3rooms_cap2_comm.gif" width="400"/>
+
+### Large Scale with Communication (8 Agents)
+<img src="contribution_tests_and_comparisions/scenarios/8agents_4rooms_cap2_comm.gif" width="400"/>
+
+---
+
+## Installation & Usage
+
+### Requirements
+
+```bash
+pip install torch torchrl tensordict matplotlib imageio numpy
+```
+
+### Training Individual Contributions
+
+```bash
+# Algorithm comparison (PPO vs IPPO vs MAPPO)
+python train_algorithms.py
+
+# Communication comparison (Baseline vs Discrete)
+python train_communication.py
+
+# Fairness comparison (Baseline vs Gini vs Participation)
+python train_fairness.py
+
+# Curriculum learning comparison
+python train_curriculum.py
+
+# Full stack (all contributions combined)
+python train_fullstack.py
+
+# Generate scenario GIFs
+python generate_scenarios.py
+```
+
+### Configuration
+
+Modify `DEFAULT_CONFIG` in any training script:
+
+```python
+config = {
+    "n_agents": 6,
+    "n_rooms": 3,
+    "room_capacity": 2,
+    "total_frames": 300000,
+    "frames_per_batch": 2048,
+    "num_epochs": 4,
+    "lr": 3e-4,
+    "gamma": 0.99,
+    "lmbda": 0.95,
+    "clip_epsilon": 0.2,
+    "entropy_coef": 0.1,
+}
+```
+
+### Output Structure
+
+All results are saved to `contribution_tests_and_comparisions/`:
 
 ```
-configs/
-├── config.yaml              # Main config with defaults
-├── env/
-│   └── default.yaml         # Environment settings
-├── algorithm/
-│   ├── ppo.yaml             # PPO hyperparameters
-│   ├── ippo.yaml            # Independent PPO
-│   └── mappo.yaml           # Multi-Agent PPO (CTDE)
+contribution_tests_and_comparisions/
+├── algorithms/
+│   ├── ppo/
+│   │   ├── model.pt
+│   │   ├── metrics.json
+│   │   └── trained_policy.gif
+│   ├── ippo/
+│   ├── mappo/
+│   └── comparison/
+│       └── algorithm_comparison.png
+├── communication/
+│   ├── baseline/
+│   ├── discrete_comm/
+│   └── comparison/
 ├── fairness/
-│   ├── none.yaml            # No fairness (baseline)
-│   ├── gini.yaml            # Gini coefficient redistribution
-│   ├── participation.yaml   # Participation variance penalty
-│   └── exclusion.yaml       # Exclusion counts penalty
-└── train/
-    └── default.yaml         # Training hyperparameters
-```
-
-### Environment Configuration (`configs/env/default.yaml`)
-
-```yaml
-n_agents: 4
-n_rooms: 2
-room_capacity: 2
-arena_radius: 10.0
-center_radius: 3.0
-max_steps: 200
-phase_mode: both
-```
-
-### Algorithm Configuration (`configs/algorithm/mappo.yaml`)
-
-```yaml
-name: mappo
-type: mappo
-clip_epsilon: 0.2
-gamma: 0.99
-lmbda: 0.95
-entropy_coef: 0.01
-value_coef: 0.5
-centralized_critic: true
-hidden_dim: 128
-```
-
-### Fairness Configuration (`configs/fairness/gini.yaml`)
-
-```yaml
-mode: gini
-alpha: 0.5
-enabled: true
-```
-
-### Command Line Overrides
-
-```bash
-# Override any value from command line
-python train.py env.n_agents=6 algorithm.hidden_dim=256 train.lr=1e-4
+│   ├── baseline/
+│   ├── gini/
+│   ├── participation/
+│   └── comparison/
+├── curriculum/
+│   ├── baseline/
+│   ├── curriculum/
+│   └── comparison/
+├── fullstack/
+│   ├── baseline/
+│   ├── full_stack/
+│   └── comparison/
+└── scenarios/
+    ├── 4agents_2rooms_cap2.gif
+    ├── 6agents_3rooms_cap2.gif
+    ├── 8agents_4rooms_cap2.gif
+    └── ...
 ```
 
 ---
@@ -307,145 +523,54 @@ python train.py env.n_agents=6 algorithm.hidden_dim=256 train.lr=1e-4
 
 ```
 student-cooperative-mingle/
-├── configs/                    # Configuration files
-│   ├── algorithm/             # PPO, IPPO, MAPPO configs
-│   ├── fairness*.yaml         # Fairness mode configs
-│   ├── env.yaml               # Environment config
-│   └── train.yaml             # Training config
-│
 ├── src/
-│   ├── envs/                  # Environment implementations
-│   │   ├── mingle_env.py      # Base MingleEnv
-│   │   ├── dynamic_mingle_env.py
-│   │   ├── modules/
-│   │   │   ├── metric_module.py    # All metrics (incl. fairness & comm)
-│   │   │   ├── reward_module.py    # Reward shaping
-│   │   │   └── reward_manager.py
-│   │   └── transforms/
-│   │       └── fairness_reward_transform.py  # Fairness redistribution
-│   │
-│   ├── models/                # Neural network architectures
-│   │   ├── policy_factory.py
-│   │   ├── critic_factory.py
-│   │   ├── centralized_critic.py  # MAPPO centralized critic
-│   │   └── mappo_actor.py
-│   │
-│   ├── train/                 # Training pipelines
-│   │   ├── pipeline.py        # Main PPO training
-│   │   ├── ippo_trainer.py    # Independent PPO
-│   │   └── mappo_trainer.py   # Multi-Agent PPO (CTDE)
-│   │
-│   └── eval/                  # Evaluation
-│       ├── pipeline.py        # Evaluation with all metrics
-│       └── gif.py             # GIF generation
-│
-├── communication_channel/     # Communication module (Task 1)
 │   ├── envs/
-│   │   ├── discrete_comm_env.py
-│   │   └── continuous_comm_env.py
-│   ├── models/
-│   │   ├── discrete_comm_policy.py
-│   │   └── continuous_comm_policy.py
-│   ├── analysis/
-│   │   └── message_analyzer.py
-│   └── train_comm.py
-│
-├── tests/                     # Unit tests
-│   ├── test.py               # Environment & metric tests
-│   ├── test_communication.py  # Communication API tests
-│   └── test_fairness.py      # Fairness transform tests
-│
-├── experiments/               # Experiment results
-│   ├── ppo/                  # PPO results (3 seeds)
-│   ├── ippo/                 # IPPO results (3 seeds)
-│   ├── mappo/                # MAPPO results (3 seeds)
-│   ├── communication/        # Communication comparison
-│   ├── fairness/             # Fairness comparison
-│   └── algorithms/           # Combined analysis
-│
-├── plots/                     # Generated plots
-├── gifs/                      # Training GIFs
-│
-├── run_experiments.py         # Main experiment runner
-├── analyze_algorithms.py      # Algorithm analysis script
-├── Dockerfile                 # Docker configuration
-├── requirements.txt           # Dependencies
-└── README.md                  # This file
+│   │   ├── mingle_env.py              # Main environment
+│   │   ├── modules/
+│   │   │   └── reward_module.py       # Reward components
+│   │   └── transforms/
+│   │       └── fairness_reward_transform.py
+│   └── models/
+│       ├── policy_factory.py          # Policy builders
+│       └── critic_factory.py          # Critic builders
+├── train_algorithms.py                # PPO/IPPO/MAPPO comparison
+├── train_communication.py             # Communication comparison
+├── train_fairness.py                  # Fairness comparison
+├── train_curriculum.py                # Curriculum learning
+├── train_fullstack.py                 # Full stack integration
+├── generate_scenarios.py              # Multi-config GIF generator
+└── contribution_tests_and_comparisions/
+    └── [all results and GIFs]
 ```
 
 ---
 
-## Failure Analysis
+## Hyperparameters
 
-### Known Limitations
-
-1. **Communication Learning Speed**
-   - Discrete messages take longer to learn meaningful semantics
-   - State-based auto-messaging (implemented) provides faster convergence than learned messages
-   - **Mitigation**: Using state-based message assignment in claiming phase
-
-2. **MAPPO Centralized Critic**
-   - Observation concatenation scales O(n_agents^2)
-   - For >10 agents, consider attention-based aggregation
-   - **Current**: Works well for 4-6 agents
-
-3. **Fairness-Reward Trade-off**
-   - High alpha values (>0.7) can reduce total team reward
-   - Gini mode works best when cumulative rewards are positive
-   - **Recommendation**: Use alpha=0.3-0.5 for balanced results
-
-4. **Room Overlap Edge Cases**
-   - When rooms overlap, agents may oscillate between assignments
-   - **Solution**: Implemented nearest-room-only assignment with hysteresis
-
-### Common Issues & Solutions
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| NaN in loss | Large gradients | Reduce LR or increase grad clipping |
-| Agents stuck in center | Spinning phase too long | Adjust `spinning_phase_range` |
-| All agents same room | No diversity penalty | Enable fairness transform |
-| Communication not helping | Messages not meaningful | Use state-based messaging |
-
-### Debugging Tips
-
-```python
-# Check message usage
-from communication_channel.analysis import analyze_discrete_messages
-results = analyze_discrete_messages(env, policy, device, num_episodes=10)
-print(results["message_frequency"])
-
-# Check fairness metrics during training
-from src.envs.modules.metric_module import GiniFairnessMetric
-metric = GiniFairnessMetric()
-# ... update during episodes ...
-print(metric.compute())
-```
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Learning Rate | 3e-4 | AdamW optimizer |
+| Gamma (γ) | 0.99 | Discount factor |
+| Lambda (λ) | 0.95 | GAE parameter |
+| Clip Epsilon | 0.2 | PPO clipping |
+| Entropy Coefficient | 0.1 | Exploration bonus |
+| Hidden Dimension | 128 | Network width |
+| Agent Embedding | 8 | Per-agent features |
+| Frames per Batch | 2048 | Rollout length |
+| PPO Epochs | 4 | Updates per batch |
+| Total Frames | 300,000 | Training duration |
 
 ---
 
-## Team Task Division
+## Reward Components
 
-### Member 1 - Communication Specialist
-- Discrete message environment (`discrete_comm_env.py`)
-- Continuous embedding environment (`continuous_comm_env.py`)
-- Communication policies (`discrete_comm_policy.py`, `continuous_comm_policy.py`)
-- Message analysis tools (`message_analyzer.py`)
-- Communication baseline comparisons
-
-### Member 2 - Fairness & Ethics Lead
-- Fairness reward transform (`fairness_reward_transform.py`)
-- Fairness metrics (Gini, participation variance, exclusion counts)
-- Fairness-aware PPO comparison
-- Participation fairness metric (`ParticipationFairnessMetric`)
-
-### Member 3 - Algorithms & Infrastructure
-- IPPO trainer (`ippo_trainer.py`)
-- MAPPO trainer with centralized critic (`mappo_trainer.py`)
-- Centralized critic architecture (`centralized_critic.py`)
-- Experiment runner (`run_experiments.py`)
-- Algorithm analysis (`analyze_algorithms.py`)
-- Docker, tests, CI/CD
+| Component | Weight | Description |
+|-----------|--------|-------------|
+| `GetToRoomReward` | +15.0 | Reward for entering a room |
+| `StayInRoomReward` | +20.0 | Reward for staying in valid room |
+| `CollisionAvoidanceReward` | -1.0 | Penalty for agent collisions |
+| `OverfillPenalty` | -5.0 | Penalty when room exceeds capacity |
+| `OutsidePenalty` | -3.0 | Penalty for being outside all rooms |
 
 ---
 

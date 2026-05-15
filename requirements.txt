@@ -10,6 +10,7 @@ gym>=0.26.0
 # Visualization
 matplotlib>=3.7.0
 Pillow>=9.5.0
+imageio>=2.31.1
 
 # Configuration
 PyYAML>=6.0

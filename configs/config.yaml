@@ -3,12 +3,12 @@
 # Sweep: python train_hydra.py --multirun algorithm=ppo,ippo,mappo
 
 defaults:
-  - env: default
+  - env
   - algorithm: ppo
   - communication: none
   - fairness: none
   - curriculum: none
-  - train: default
+  - train
   - _self_
 
 # Experiment name (auto-generated if not set)

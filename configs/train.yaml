@@ -16,3 +16,5 @@ train:
   curriculum:
     # [n_agents, n_rooms, frames] - Single stage at 50k
     - [4, 4, 50000]             # 4 agents, 4 rooms, 50k frames
+
+  save_model: true

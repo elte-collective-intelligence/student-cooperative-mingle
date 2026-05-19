@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from typing import Tuple
+from typing import Tuple, Optional
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -711,6 +711,173 @@ class UnifiedCooperativeReward(RewardModule):
             rewards += collision_pen.unsqueeze(1)
 
         return rewards * self.reward_scale
+
+
+class EfficiencyReward(RewardModule):
+    """
+    Efficiency objective for Pareto scalarization.
+
+    Uses room occupancy and success to provide a global coordination signal.
+    """
+    def __init__(
+        self,
+        phase_mode: str = "claiming",
+        occupancy_weight: float = 1.0,
+        success_weight: float = 1.0,
+    ):
+        super().__init__(phase_mode=phase_mode)
+        self.occupancy_weight = occupancy_weight
+        self.success_weight = success_weight
+
+    def _reward(self, env: "MingleEnv") -> Tensor:
+        if env.room_positions is None:
+            return torch.zeros((env.n_agents, 1), device=env.device)
+
+        room_dists = torch.cdist(env.agent_positions, env.room_positions)
+        in_room = room_dists < env.room_radius
+
+        assignments = torch.full((env.n_agents,), -1, dtype=torch.long, device=env.device)
+        for i in range(env.n_agents):
+            if in_room[i].any():
+                assignments[i] = in_room[i].nonzero(as_tuple=True)[0][0]
+
+        room_occupancy = torch.bincount(assignments[assignments >= 0], minlength=env.n_rooms)
+
+        agents_in_valid_rooms = 0
+        individual_reward = torch.zeros((env.n_agents, 1), device=env.device)
+        for i in range(env.n_agents):
+            room_idx = assignments[i].item()
+            if room_idx >= 0 and room_occupancy[room_idx] <= env.room_capacity:
+                agents_in_valid_rooms += 1
+                individual_reward[i] = 1.0
+
+        occupancy_rate = agents_in_valid_rooms / max(env.n_agents, 1)
+        success = 1.0 if agents_in_valid_rooms == env.n_agents else 0.0
+
+        # Dense shaping to guide agents to rooms
+        min_room_dists = room_dists.min(dim=1, keepdim=True)[0]
+        dense_shaping = 1.0 - (min_room_dists / (2 * env.arena_radius)).clamp(0, 1)
+
+        # Mix global success, individual room occupation, and dense shaping
+        reward_val = (self.occupancy_weight * individual_reward) + (self.success_weight * success) + (0.5 * dense_shaping)
+        return reward_val
+
+
+class FairnessReward(RewardModule):
+    """
+    Fairness objective for Pareto scalarization.
+
+    Supported metrics:
+    - "gini": Gini coefficient on participation rates
+    - "participation_variance": variance of participation rates
+    - "jain": Jain's fairness index on participation rates
+    - "exclusion_variance": variance of exclusion counts
+    - "participation_range": max(participation_rate) - min(participation_rate)
+    """
+    def __init__(
+        self,
+        phase_mode: str = "claiming",
+        fairness_metric: str = "gini",
+    ):
+        super().__init__(phase_mode=phase_mode)
+        self.fairness_metric = fairness_metric
+        self.participation_counts: Optional[torch.Tensor] = None
+        self.exclusion_counts: Optional[torch.Tensor] = None
+        self.steps = 0
+        self.last_env_step = -1
+
+    def _reset_state(self, env: "MingleEnv") -> None:
+        self.participation_counts = torch.zeros(env.n_agents, device=env.device)
+        self.exclusion_counts = torch.zeros(env.n_agents, device=env.device)
+        self.steps = 0
+        self.last_env_step = env.current_step
+
+    def _compute_gini(self, values: torch.Tensor) -> float:
+        if values.numel() == 0:
+            return 0.0
+        vals = values.float()
+        if vals.sum() == 0:
+            return 0.0
+        sorted_vals, _ = torch.sort(vals)
+        n = len(sorted_vals)
+        cumsum = torch.cumsum(sorted_vals, dim=0)
+        gini = 1.0 - 2.0 * cumsum.sum() / (n * sorted_vals.sum()) + 1.0 / n
+        return max(0.0, min(1.0, gini.item()))
+
+    def _compute_jain(self, values: torch.Tensor) -> float:
+        vals = values.float()
+        if vals.numel() == 0:
+            return 0.0
+        numerator = vals.sum() ** 2
+        denominator = vals.numel() * (vals ** 2).sum()
+        if denominator == 0:
+            return 0.0
+        return float((numerator / denominator).clamp(0.0, 1.0).item())
+
+    def _reward(self, env: "MingleEnv") -> Tensor:
+        if env.room_positions is None:
+            return torch.zeros((env.n_agents, 1), device=env.device)
+
+        if self.participation_counts is None or env.current_step <= self.last_env_step:
+            self._reset_state(env)
+        self.last_env_step = env.current_step
+
+        room_dists = torch.cdist(env.agent_positions, env.room_positions)
+        in_room = (room_dists < env.room_radius).any(dim=1)
+        self.participation_counts += in_room.float()
+
+        excluded = env.forced_to_leave if hasattr(env, "forced_to_leave") else torch.zeros(env.n_agents, device=env.device, dtype=torch.bool)
+        self.exclusion_counts += excluded.float()
+
+        self.steps += 1
+        participation_rates = self.participation_counts / max(self.steps, 1)
+
+        if self.fairness_metric == "gini":
+            fairness = 1.0 - self._compute_gini(participation_rates)
+        elif self.fairness_metric == "participation_variance":
+            var = participation_rates.var().item()
+            max_var = 0.25
+            fairness = 1.0 - min(var / max_var, 1.0)
+        elif self.fairness_metric == "jain":
+            fairness = self._compute_jain(participation_rates)
+        elif self.fairness_metric == "exclusion_variance":
+            var = self.exclusion_counts.var().item()
+            mean = self.exclusion_counts.mean().item()
+            denom = (mean ** 2 + 1e-6)
+            normalized = min(var / denom, 1.0) if denom > 0 else 0.0
+            fairness = 1.0 - normalized
+        elif self.fairness_metric == "participation_range":
+            participation_range = participation_rates.max() - participation_rates.min()
+            fairness = 1.0 - participation_range.clamp(0.0, 1.0).item()
+        else:
+            fairness = 0.0
+
+        return torch.full((env.n_agents, 1), fairness, device=env.device)
+
+
+class MultiObjectiveReward(RewardModule):
+    """
+    Scalarized reward: R = alpha * R_eff + (1 - alpha) * R_fair.
+    """
+    def __init__(
+        self,
+        alpha: float,
+        efficiency_module: RewardModule,
+        fairness_module: RewardModule,
+        phase_mode: str = "claiming",
+    ):
+        super().__init__(phase_mode=phase_mode)
+        self.alpha = float(alpha)
+        self.efficiency_module = efficiency_module
+        self.fairness_module = fairness_module
+        # Ensure internal modules are active so __call__ returns signals.
+        self.efficiency_module._activate()
+        self.fairness_module._activate()
+
+    def _reward(self, env: "MingleEnv") -> Tensor:
+        efficiency = self.efficiency_module(env)
+        fairness = self.fairness_module(env)
+        return self.alpha * efficiency + (1.0 - self.alpha) * fairness
 
 
 class NormalizedRewardWrapper(RewardModule):

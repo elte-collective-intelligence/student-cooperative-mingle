@@ -1,0 +1,9 @@
+# Pareto multi-objective reward (efficiency vs fairness)
+mode: pareto
+alpha: 0.5
+enabled: true
+fairness_metric: gini
+# Optional weighting inside efficiency objective
+# efficiency_reward = occupancy_weight * occupancy_rate + success_weight * success
+efficiency_occupancy_weight: 1.0
+efficiency_success_weight: 1.0

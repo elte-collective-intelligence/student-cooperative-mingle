@@ -37,6 +37,9 @@ from src.envs.modules.reward_module import (
     CollisionAvoidanceReward,
     StayInRoomReward,
     GetToRoomReward,
+    EfficiencyReward,
+    FairnessReward,
+    MultiObjectiveReward,
 )
 
 
@@ -180,6 +183,29 @@ class ObservationNormalizer:
 
 def get_reward_modules(cfg):
     """Create reward modules from config."""
+    if cfg.fairness.mode == "pareto":
+        fairness_metric = cfg.fairness.get("fairness_metric", "gini")
+        occupancy_weight = cfg.fairness.get("efficiency_occupancy_weight", 1.0)
+        success_weight = cfg.fairness.get("efficiency_success_weight", 1.0)
+
+        efficiency = EfficiencyReward(
+            phase_mode="claiming",
+            occupancy_weight=occupancy_weight,
+            success_weight=success_weight,
+        )
+        fairness = FairnessReward(
+            phase_mode="claiming",
+            fairness_metric=fairness_metric,
+        )
+        scalarized = MultiObjectiveReward(
+            alpha=cfg.fairness.alpha,
+            efficiency_module=efficiency,
+            fairness_module=fairness,
+            phase_mode="claiming",
+        )
+        scalarized._activate()
+        return [scalarized]
+
     modules = [
         CollisionAvoidanceReward(min_distance=0.5, penalty=1.0, phase_mode="claiming"),
         GetToRoomReward(max_reward=15.0, phase_mode="claiming"),
@@ -199,6 +225,43 @@ def compute_gini(values):
     values = np.sort(values)
     n = len(values)
     return (2 * np.sum(np.arange(1, n + 1) * values) / (n * np.sum(values))) - (n + 1) / n
+
+
+def compute_jain(values):
+    """Compute Jain's fairness index for a vector."""
+    values = np.array(values).flatten().astype(float)
+    if len(values) == 0:
+        return 0.0
+    numerator = np.sum(values) ** 2
+    denominator = len(values) * np.sum(values ** 2)
+    if denominator == 0:
+        return 0.0
+    return float(np.clip(numerator / denominator, 0.0, 1.0))
+
+
+def compute_episode_efficiency(env: MingleEnv) -> float:
+    """Compute a scalar efficiency score from the final episode state."""
+    if env.room_positions is None:
+        return 0.0
+
+    room_dists = torch.cdist(env.agent_positions, env.room_positions)
+    in_room = room_dists < env.room_radius
+
+    assignments = torch.full((env.n_agents,), -1, dtype=torch.long, device=env.device)
+    for i in range(env.n_agents):
+        if in_room[i].any():
+            assignments[i] = in_room[i].nonzero(as_tuple=True)[0][0]
+
+    room_occupancy = torch.bincount(assignments[assignments >= 0], minlength=env.n_rooms)
+    agents_in_valid_rooms = 0
+    for i in range(env.n_agents):
+        room_idx = assignments[i].item()
+        if room_idx >= 0 and room_occupancy[room_idx] <= env.room_capacity:
+            agents_in_valid_rooms += 1
+
+    occupancy_rate = agents_in_valid_rooms / max(env.n_agents, 1)
+    success = 1.0 if agents_in_valid_rooms == env.n_agents else 0.0
+    return float(0.5 * occupancy_rate + 0.5 * success)
 
 
 def get_device(cfg):
@@ -256,6 +319,8 @@ def train(cfg: DictConfig):
         "config": OmegaConf.to_container(cfg, resolve=True),
         "episode_rewards": [],
         "gini_coefficients": [],
+        "episode_fairness": [],
+        "episode_efficiency": [],
         "losses": [],
     }
 
@@ -334,6 +399,8 @@ def train(cfg: DictConfig):
             if done:
                 metrics["episode_rewards"].append(episode_reward)
                 metrics["gini_coefficients"].append(compute_gini(agent_episode_rewards.numpy()))
+                metrics["episode_fairness"].append(compute_jain(agent_episode_rewards.numpy()))
+                metrics["episode_efficiency"].append(compute_episode_efficiency(env))
                 episode_reward = 0
                 agent_episode_rewards = torch.zeros(n_agents)
                 td = env.reset()

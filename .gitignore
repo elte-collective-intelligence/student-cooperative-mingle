@@ -28,6 +28,13 @@ Thumbs.db
 *.bak
 *.swp
 
+# Microsoft Office temporary files
+~$*
+~*.tmp
+~*.TMP
+*.~lock.*
+*.tmp
+
 # Egg info and distribution files
 *.egg-info/
 *.dist-info/

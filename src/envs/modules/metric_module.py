@@ -422,6 +422,42 @@ class GiniFairnessMetric(MetricModule):
         }
 
 
+class JainFairnessMetric(MetricModule):
+    """
+    Tracks Jain's fairness index for reward distribution.
+
+    Jain index in [0,1], higher is more fair.
+    """
+    def __init__(self):
+        super().__init__("jain_fairness")
+
+    def reset(self):
+        self.cumulative_rewards = None
+
+    def update(self, env: MingleEnv):
+        if hasattr(env, "last_rewards"):
+            rewards = env.last_rewards.squeeze()
+            if self.cumulative_rewards is None:
+                self.cumulative_rewards = rewards.clone()
+            else:
+                self.cumulative_rewards += rewards
+
+    def compute(self):
+        if self.cumulative_rewards is None:
+            return {"jain_index": 0.0, "jain_gap": 1.0}
+
+        rewards = self.cumulative_rewards.float()
+        numerator = rewards.sum() ** 2
+        denominator = rewards.numel() * (rewards ** 2).sum()
+
+        if denominator == 0:
+            jain = 0.0
+        else:
+            jain = float((numerator / denominator).clamp(0.0, 1.0).item())
+
+        return {"jain_index": jain, "jain_gap": 1.0 - jain}
+
+
 class ClaimingPhaseEfficiencyMetric(MetricModule):
     """
     Tracks how efficiently agents leave center and enter rooms during claiming.
@@ -667,4 +703,56 @@ class ParticipationFairnessMetric(MetricModule):
             "participation_gini": gini,
             "mean_participation_rate": participation_rates.mean().item(),
             "max_exclusions": self.agent_exclusion_counts.max().item(),
+        }
+
+
+class ParticipationRangeMetric(MetricModule):
+    """
+    Additional fairness metric for Task 3.
+
+    Tracks how unequal the agents' room participation is.
+    Lower participation_range means fairer participation.
+
+    participation_range = max(participation_rate) - min(participation_rate)
+    """
+
+    def __init__(self):
+        super().__init__("participation_range")
+
+    def reset(self):
+        self.agent_room_time = None
+        self.total_steps = 0
+
+    def update(self, env):
+        if self.agent_room_time is None:
+            self.agent_room_time = torch.zeros(env.n_agents, device="cpu")
+
+        if hasattr(env, "agent_in_room"):
+            self.agent_room_time += env.agent_in_room.float().cpu()
+        else:
+            if env.room_positions is None:
+                return
+            dists = torch.cdist(env.agent_positions, env.room_positions)
+            in_room = (dists < env.room_radius).any(dim=1)
+            self.agent_room_time += in_room.float().cpu()
+
+        self.total_steps += 1
+
+    def compute(self):
+        if self.agent_room_time is None or self.total_steps == 0:
+            return {
+                "participation_range": 0.0,
+                "min_participation_rate": 0.0,
+                "max_participation_rate": 0.0,
+            }
+
+        participation_rates = self.agent_room_time / self.total_steps
+        participation_range = (
+            participation_rates.max() - participation_rates.min()
+        ).item()
+
+        return {
+            "participation_range": participation_range,
+            "min_participation_rate": participation_rates.min().item(),
+            "max_participation_rate": participation_rates.max().item(),
         }

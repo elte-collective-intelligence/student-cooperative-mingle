@@ -27,6 +27,7 @@ class DummyEnv:
         ], dtype=torch.float32)
 
         self.room_radius = 1.0
+        self.arena_radius = 10.0
         self.agent_in_room = torch.tensor([True, True, True, False])
         self.forced_to_leave = torch.tensor([False, False, False, False])
 

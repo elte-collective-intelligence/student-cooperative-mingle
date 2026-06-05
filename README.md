@@ -2,10 +2,6 @@
 
 A comprehensive Multi-Agent Reinforcement Learning (MARL) framework for solving the cooperative room allocation problem. Agents must coordinate to distribute themselves fairly across rooms while respecting capacity constraints.
 
-<p align="center">
-  <img src="contribution_tests_and_comparisions/pareto/cases/a0.5-1/trained_policy.gif" alt="Cooperative Mingle rollout (Pareto, alpha=0.5)" width="400"/>
-</p>
-
 **Course:** Collective Intelligence - Multi-Agent Reinforcement Learning
 **Semester:** 2025/26/2
 **Assignment 2:** Cooperative Mingle
@@ -78,7 +74,7 @@ The experiments were run on both small and large scenario regimes.
 
 Most conditions were evaluated with 5 fixed seeds. The 8-agent / 4-room large condition also includes one additional smoke-validation run, so it has 6 seeds in the aggregated results.
 
-All Task 3 artifacts are stored under: `contribution_tests_and_comparisions/pareto/`
+Reproduce the artifacts with the Pareto commands under [Installation & Usage](#installation--usage); the original run outputs (CSVs, plots, GIFs) live on the `2025/26/2` semester branch.
 
 ### Key results
 Across both small and large scenarios, increasing alpha generally increased the mean reward. This matches the expected behavior, since higher alpha values give more weight to the efficiency objective.
@@ -86,8 +82,6 @@ Across both small and large scenarios, increasing alpha generally increased the 
 For example, in the large 10-agent / 5-room scenario, the mean reward increased from approximately 706.07 at alpha = 0.0 to 781.45 at alpha = 1.0.
 
 The Gini coefficient remained relatively low overall, but it increased as alpha grew. This suggests that stronger efficiency weighting improved reward while slightly reducing measured fairness.
-
-<p align="center"> <img src="contribution_tests_and_comparisions/pareto/pareto_small.png" alt="Pareto results (small scenarios)" width="700"/> </p> <p align="center"> <img src="contribution_tests_and_comparisions/pareto/pareto_large.png" alt="Pareto results (large scenarios)" width="700"/> </p> <p align="center"> <img src="contribution_tests_and_comparisions/pareto/alpha_vs_reward_small.png" alt="Alpha vs Reward (small)" width="700"/> </p> <p align="center"> <img src="contribution_tests_and_comparisions/pareto/alpha_vs_reward_large.png" alt="Alpha vs Reward (large)" width="700"/> </p> <p align="center"> <img src="contribution_tests_and_comparisions/pareto/alpha_vs_gini_small.png" alt="Alpha vs Gini (small)" width="700"/> </p> <p align="center"> <img src="contribution_tests_and_comparisions/pareto/alpha_vs_gini_large.png" alt="Alpha vs Gini (large)" width="700"/> </p>
 
 ### Conclusions and limitations
 
@@ -216,9 +210,7 @@ student-cooperative-mingle/
 ├── train_hydra.py                     # Hydra training entry point
 ├── analyze_pareto.py                  # Pareto sweep aggregation + plots (Task 3)
 ├── Dockerfile                         # Docker support
-├── requirements.txt
-└── contribution_tests_and_comparisions/
-    └── pareto/                        # Task 3 artifacts (CSVs, plots, GIFs)
+└── requirements.txt
 ```
 
 ---
